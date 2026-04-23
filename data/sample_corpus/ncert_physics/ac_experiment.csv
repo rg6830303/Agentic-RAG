@@ -1,0 +1,4 @@
+experiment,observation,inference
+AC resistor circuit,Voltage and current remain in phase,Pure resistance does not create phase lag
+AC inductor circuit,Current lags voltage by about ninety degrees,Inductance opposes change in current
+AC capacitor circuit,Current leads voltage by about ninety degrees,Capacitance opposes change in potential difference

@@ -1,0 +1,58 @@
+[
+  {
+    "sample_id": "physics-001",
+    "question": "What does Coulomb's law say about the force between two point charges?",
+    "reference_answer": "Coulomb's law says the electrostatic force between two point charges is proportional to the product of the charges and inversely proportional to the square of the distance between them.",
+    "reference_contexts": [
+      "Coulomb's law states that the magnitude of electrostatic force between two point charges is proportional to the product of the charges and inversely proportional to the square of the distance between them."
+    ],
+    "expected_files": [
+      "electrostatics.md"
+    ],
+    "metadata": {
+      "topic": "electrostatics"
+    }
+  },
+  {
+    "sample_id": "physics-002",
+    "question": "How is resistance related to resistivity, length, and area?",
+    "reference_answer": "Resistance is equal to resistivity multiplied by length and divided by cross-sectional area.",
+    "reference_contexts": [
+      "Resistance depends on resistivity, length, and area by the relation R = rho * L / A."
+    ],
+    "expected_files": [
+      "current_electricity.txt"
+    ],
+    "metadata": {
+      "topic": "current_electricity"
+    }
+  },
+  {
+    "sample_id": "physics-003",
+    "question": "What is the thin lens formula in ray optics?",
+    "reference_answer": "The thin lens formula is one over focal length equals one over image distance minus one over object distance using the Cartesian sign convention.",
+    "reference_contexts": [
+      "For lenses, the thin lens formula is written as 1/f = 1/v - 1/u using the Cartesian sign convention."
+    ],
+    "expected_files": [
+      "ray_optics.md"
+    ],
+    "metadata": {
+      "topic": "ray_optics"
+    }
+  },
+  {
+    "sample_id": "physics-004",
+    "question": "What kind of majority carriers are found in an n-type semiconductor?",
+    "reference_answer": "An n-type semiconductor has electrons as majority carriers.",
+    "reference_contexts": [
+      "Doping with pentavalent impurity creates an n-type semiconductor with electrons as majority carriers."
+    ],
+    "expected_files": [
+      "semiconductors.json"
+    ],
+    "metadata": {
+      "topic": "semiconductors"
+    }
+  }
+]

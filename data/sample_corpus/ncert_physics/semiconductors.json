@@ -1,0 +1,14 @@
+{
+  "topic": "Semiconductor Electronics",
+  "concepts": [
+    "A pure semiconductor such as silicon has relatively low conductivity at room temperature compared with metals.",
+    "Doping with pentavalent impurity creates an n-type semiconductor with electrons as majority carriers.",
+    "Doping with trivalent impurity creates a p-type semiconductor with holes as majority carriers.",
+    "A p-n junction diode allows current more easily in forward bias than in reverse bias."
+  ],
+  "devices": [
+    "rectifier",
+    "light emitting diode",
+    "transistor"
+  ]
+}

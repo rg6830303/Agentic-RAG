@@ -1,0 +1,5 @@
+Current is the rate of flow of electric charge through a conductor. In metallic conductors, electrons drift opposite to the direction of conventional current. Current density depends on the number density of charge carriers, their drift speed, and the cross-sectional area.
+
+Ohm's law states that potential difference across a conductor is proportional to the current through it when temperature and physical conditions remain constant. Resistance depends on resistivity, length, and area by the relation R = rho * L / A.
+
+Electrical power in a circuit can be written as P = VI, P = I^2R, or P = V^2/R depending on the available quantities.
