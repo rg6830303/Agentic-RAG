@@ -5,4 +5,4 @@ if exist .venv\Scripts\python.exe (
 ) else (
   set "PYTHON_EXE=python"
 )
-%PYTHON_EXE% -m streamlit run streamlit_app.py
+%PYTHON_EXE% -m uvicorn app:app --reload --port 8000

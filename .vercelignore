@@ -12,13 +12,9 @@ __pycache__/
 .pytest_cache/
 
 artifacts/
-data/
 data/uploads/
-pages/
-src/
 tests/
-requirements-local.txt
-streamlit_app.py
+src/
 
 run_app.cmd
 ARCHITECTURE.md

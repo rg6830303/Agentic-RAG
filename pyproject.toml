@@ -1,11 +1,12 @@
 [project]
 name = "agentic-rag"
 version = "0.1.0"
-description = "Advanced Agentic RAG with a Vercel-compatible API entrypoint."
+description = "Advanced Agentic RAG with a Vercel-native FastAPI UI and API."
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.117.1",
     "requests>=2.32.0",
+    "uvicorn>=0.30.0",
 ]
 
 [project.scripts]

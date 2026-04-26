@@ -4,19 +4,23 @@ import os
 import unittest
 from unittest.mock import patch
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 
 from app import app as root_app
-from api.index import ChatRequest, chat_completion, health_check, read_root, runtime_info
+from api.index import ChatRequest, chat_completion, corpus_info, health_check, read_root, runtime_info
 
 
 class VercelApiTests(unittest.TestCase):
     def test_health_and_root_metadata(self) -> None:
         self.assertIsInstance(root_app, FastAPI)
         root = read_root()
-        self.assertEqual(root["status"], "ok")
-        self.assertEqual(root["health"], "/api/health")
+        self.assertIn(b"Advanced Agentic RAG", root.body)
         self.assertEqual(health_check()["status"], "ok")
+
+    def test_corpus_is_available_to_vercel_api(self) -> None:
+        corpus = corpus_info()
+        self.assertGreater(corpus["source_count"], 0)
+        self.assertGreater(corpus["chunk_count"], 0)
 
     def test_runtime_does_not_expose_secret_values(self) -> None:
         with patch.dict(
@@ -34,12 +38,12 @@ class VercelApiTests(unittest.TestCase):
         self.assertTrue(runtime["azure_openai"]["chat_configured"])
         self.assertNotIn("super-secret", str(runtime))
 
-    def test_chat_requires_vercel_environment(self) -> None:
+    def test_chat_uses_local_rag_without_azure_environment(self) -> None:
         with patch.dict(os.environ, {}, clear=True):
-            with self.assertRaises(HTTPException) as raised:
-                chat_completion(ChatRequest(message="hello"))
+            response = chat_completion(ChatRequest(message="How is resistance related to length?"))
 
-        self.assertEqual(raised.exception.status_code, 503)
+        self.assertEqual(response.provider, "local_rag")
+        self.assertTrue(response.citations)
 
 
 if __name__ == "__main__":

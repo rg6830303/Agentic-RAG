@@ -1,7 +1,4 @@
-# Vercel serverless API dependencies.
-#
-# The full local Streamlit/RAG app uses requirements-local.txt. Keeping this
-# file slim prevents Vercel from installing heavy local-only packages such as
-# Streamlit, FAISS, RAGAS, datasets, and pyarrow during deployment.
+# Vercel FastAPI app dependencies.
 fastapi>=0.117.1
 requests>=2.32.0
+uvicorn>=0.30.0

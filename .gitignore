@@ -3,9 +3,6 @@
 .env.*
 !.env.example
 secrets.toml
-.streamlit/
-!.streamlit/
-!.streamlit/config.toml
 
 # Virtual environments
 .venv/

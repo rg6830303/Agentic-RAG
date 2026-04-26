@@ -1,37 +1,27 @@
 # Troubleshooting
 
-## `AGENTS.md` Missing
+## Vercel Cannot Find A Python Entrypoint
 
-This repository currently does not include `AGENTS.md`. The implementation therefore follows the explicit user request and the repository-local structure created for this project.
+The deployment entrypoint is `app.py`, and it exports a FastAPI instance named `app`. Confirm `pyproject.toml` contains:
 
-## FAISS Unavailable
-
-If FAISS rebuilds fail, install `faiss-cpu` in the active Python environment. BM25 retrieval still works independently.
-
-## Streamlit Import Fails After Installing `requirements.txt`
-
-`requirements.txt` is intentionally slim for Vercel. Install the local app stack instead:
-
-```cmd
-pip install -r requirements-local.txt
+```toml
+[project.scripts]
+app = "app:app"
 ```
 
-## Vercel Deploys but `/api/chat` Returns 503
+## Unmatched `functions` Pattern
 
-Set `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_API_VERSION`, `AZURE_OPENAI_API_KEY`, and `AZURE_OPENAI_CHAT_DEPLOYMENT` in Vercel Project Settings. The health and runtime endpoints work without these values.
+`vercel.json` intentionally does not define a `functions` block. Vercel's FastAPI detector owns the root `app.py` entrypoint.
 
-## PDF or DOCX Ingestion Fails
+## `/api/chat` Uses Local Answers
 
-Install the optional loaders:
+This is expected when Azure OpenAI environment variables are not configured. Add these in Vercel Project Settings to enable model synthesis:
 
-- `pypdf`
-- `python-docx`
+- `AZURE_OPENAI_API_KEY`
+- `AZURE_OPENAI_ENDPOINT`
+- `AZURE_OPENAI_API_VERSION`
+- `AZURE_OPENAI_CHAT_DEPLOYMENT`
 
-## Azure Chat or Embeddings Missing
+## Corpus Is Empty
 
-- Missing chat deployment: the app falls back to local extractive answer generation
-- Missing embeddings deployment: FAISS rebuild and vector retrieval remain unavailable, but BM25 continues to work
-
-## Streamlit Starts but Pages Look Empty
-
-Ingest sample files first from `data/sample_corpus/ncert_physics/`, then rebuild indexes if needed.
+The Vercel app reads from `data/sample_corpus`. Make sure that folder is committed and not ignored by `.vercelignore`.

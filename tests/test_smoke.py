@@ -4,6 +4,7 @@ import unittest
 import uuid
 from pathlib import Path
 import shutil
+import os
 from unittest.mock import patch
 
 from src.chunking.strategies import ChunkingService
@@ -25,6 +26,8 @@ class DummyProvider(AzureOpenAIProvider):
 
 class SmokeTests(unittest.TestCase):
     def setUp(self) -> None:
+        self.env_patcher = patch.dict(os.environ, {}, clear=True)
+        self.env_patcher.start()
         temp_root = Path.cwd() / "artifacts" / "test_workspaces"
         temp_root.mkdir(parents=True, exist_ok=True)
         self.root = temp_root / f"workspace_{uuid.uuid4().hex[:8]}"
@@ -46,6 +49,7 @@ class SmokeTests(unittest.TestCase):
         self.settings.ensure_directories()
 
     def tearDown(self) -> None:
+        self.env_patcher.stop()
         shutil.rmtree(self.root, ignore_errors=True)
 
     def test_settings_detect_configuration(self) -> None:
@@ -54,26 +58,26 @@ class SmokeTests(unittest.TestCase):
         self.assertEqual(self.settings.azure_api_version, "2024-12-01-preview")
         self.assertEqual(self.settings.config_source, "dotenv")
 
-    def test_streamlit_secrets_take_precedence_over_dotenv(self) -> None:
-        with patch(
-            "src.config.settings._load_streamlit_secret_values",
-            return_value={
-                "azure_api_key": "secret-key",
-                "azure_endpoint": "https://streamlit-secret.openai.azure.com/",
-                "azure_api_version": "2025-01-01-preview",
-                "azure_chat_deployment": "streamlit-chat",
-                "azure_embeddings_deployment": "streamlit-embed",
+    def test_environment_values_take_precedence_over_dotenv(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "AZURE_OPENAI_API_KEY": "environment-key",
+                "AZURE_OPENAI_ENDPOINT": "https://environment.openai.azure.com/",
+                "AZURE_OPENAI_API_VERSION": "2025-01-01-preview",
+                "AZURE_OPENAI_CHAT_DEPLOYMENT": "environment-chat",
+                "AZURE_OPENAI_EMBEDDINGS_DEPLOYMENT": "environment-embed",
             },
         ):
             settings = AppSettings.from_env(self.root)
 
-        self.assertEqual(settings.config_source, "streamlit_secrets")
-        self.assertEqual(settings.azure_api_key, "secret-key")
+        self.assertEqual(settings.config_source, "environment")
+        self.assertEqual(settings.azure_api_key, "environment-key")
         self.assertEqual(
             settings.azure_endpoint,
-            "https://streamlit-secret.openai.azure.com/",
+            "https://environment.openai.azure.com/",
         )
-        self.assertEqual(settings.azure_chat_deployment, "streamlit-chat")
+        self.assertEqual(settings.azure_chat_deployment, "environment-chat")
         self.assertFalse(
             any("Missing .env file" in issue for issue in settings.validate())
         )

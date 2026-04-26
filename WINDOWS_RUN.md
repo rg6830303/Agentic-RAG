@@ -1,33 +1,14 @@
-# Windows Run
+# Local Run
 
-## Prerequisites
-
-- Windows CMD
-- Python 3.13 or compatible local Python installation
-- Azure OpenAI settings provided through either:
-  - a valid `.env` in the repository root, or
-  - `.streamlit/secrets.toml` for local Streamlit secret loading
-
-## Commands
+This repository is configured for Vercel deployment. A local smoke run is still available for checking the FastAPI UI before pushing.
 
 ```cmd
 python -m venv .venv
 .venv\Scripts\activate
-pip install -r requirements-local.txt
-python -m streamlit run streamlit_app.py
+pip install -r requirements.txt
+python -m uvicorn app:app --reload --port 8000
 ```
 
-For this repository, `requirements.txt` is the slim Vercel API dependency set. Use `requirements-local.txt` when running Streamlit.
+Open `http://127.0.0.1:8000`.
 
-You can also use:
-
-```cmd
-run_app.cmd
-```
-
-## Notes
-
-- The app writes local state to `artifacts/`
-- Uploaded files are stored under `data/uploads/`
-- Streamlit pages are available from the sidebar
-- For Streamlit Cloud, paste the values from `secrets.toml` into the app's `Secrets` settings instead of uploading `.env`
+Azure OpenAI settings can be provided through environment variables or a local `.env` file when using the reusable Python services under `src/`.
