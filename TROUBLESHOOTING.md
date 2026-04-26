@@ -8,6 +8,18 @@ This repository currently does not include `AGENTS.md`. The implementation there
 
 If FAISS rebuilds fail, install `faiss-cpu` in the active Python environment. BM25 retrieval still works independently.
 
+## Streamlit Import Fails After Installing `requirements.txt`
+
+`requirements.txt` is intentionally slim for Vercel. Install the local app stack instead:
+
+```cmd
+pip install -r requirements-local.txt
+```
+
+## Vercel Deploys but `/api/chat` Returns 503
+
+Set `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_API_VERSION`, `AZURE_OPENAI_API_KEY`, and `AZURE_OPENAI_CHAT_DEPLOYMENT` in Vercel Project Settings. The health and runtime endpoints work without these values.
+
 ## PDF or DOCX Ingestion Fails
 
 Install the optional loaders:

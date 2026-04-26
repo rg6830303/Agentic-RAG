@@ -2,6 +2,10 @@
 .env
 .env.*
 !.env.example
+secrets.toml
+.streamlit/
+!.streamlit/
+!.streamlit/config.toml
 
 # Virtual environments
 .venv/
@@ -20,9 +24,6 @@ __pycache__/
 .coverage
 .coverage.*
 htmlcov/
-
-# Streamlit and local app state
-.streamlit/secrets.toml
 
 # Generated project outputs
 artifacts/

@@ -8,6 +8,104 @@ from typing import Any
 from dotenv import dotenv_values
 
 
+STREAMLIT_SECRET_ALIASES: dict[str, tuple[str, ...]] = {
+    "azure_endpoint": ("azure_endpoint", "AZURE_OPENAI_ENDPOINT"),
+    "azure_api_version": ("azure_api_version", "AZURE_OPENAI_API_VERSION"),
+    "azure_api_key": ("azure_api_key", "AZURE_OPENAI_API_KEY"),
+    "azure_chat_deployment": (
+        "azure_chat_deployment",
+        "AZURE_OPENAI_CHAT_DEPLOYMENT",
+    ),
+    "azure_embeddings_deployment": (
+        "azure_embeddings_deployment",
+        "AZURE_OPENAI_EMBEDDINGS_DEPLOYMENT",
+    ),
+}
+STREAMLIT_AZURE_SECTION_ALIASES: dict[str, tuple[str, ...]] = {
+    "azure_endpoint": ("endpoint", "azure_endpoint", "AZURE_OPENAI_ENDPOINT"),
+    "azure_api_version": (
+        "api_version",
+        "azure_api_version",
+        "AZURE_OPENAI_API_VERSION",
+    ),
+    "azure_api_key": ("api_key", "azure_api_key", "AZURE_OPENAI_API_KEY"),
+    "azure_chat_deployment": (
+        "chat_deployment",
+        "azure_chat_deployment",
+        "AZURE_OPENAI_CHAT_DEPLOYMENT",
+    ),
+    "azure_embeddings_deployment": (
+        "embeddings_deployment",
+        "azure_embeddings_deployment",
+        "AZURE_OPENAI_EMBEDDINGS_DEPLOYMENT",
+    ),
+}
+DOTENV_ALIASES: dict[str, str] = {
+    "azure_endpoint": "AZURE_OPENAI_ENDPOINT",
+    "azure_api_version": "AZURE_OPENAI_API_VERSION",
+    "azure_api_key": "AZURE_OPENAI_API_KEY",
+    "azure_chat_deployment": "AZURE_OPENAI_CHAT_DEPLOYMENT",
+    "azure_embeddings_deployment": "AZURE_OPENAI_EMBEDDINGS_DEPLOYMENT",
+}
+
+
+def _normalize_value(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, (int, float, bool)):
+        return str(value).strip()
+    return ""
+
+
+def _mapping_get(mapping: Any, key: str) -> Any:
+    try:
+        if hasattr(mapping, "get"):
+            return mapping.get(key)
+        return mapping[key]
+    except Exception:
+        return None
+
+
+def _first_mapping_value(mapping: Any, aliases: tuple[str, ...]) -> str:
+    for alias in aliases:
+        candidate = _normalize_value(_mapping_get(mapping, alias))
+        if candidate:
+            return candidate
+    return ""
+
+
+def _load_streamlit_secret_values() -> dict[str, str]:
+    try:
+        import streamlit as st
+    except Exception:
+        return {}
+
+    try:
+        secrets = st.secrets
+    except Exception:
+        return {}
+
+    values = {
+        key: _first_mapping_value(secrets, aliases)
+        for key, aliases in STREAMLIT_SECRET_ALIASES.items()
+    }
+    azure_section = _mapping_get(secrets, "azure_openai")
+    if azure_section:
+        for key, aliases in STREAMLIT_AZURE_SECTION_ALIASES.items():
+            if not values[key]:
+                values[key] = _first_mapping_value(azure_section, aliases)
+    return values
+
+
+def _load_dotenv_values(env_path: Path) -> dict[str, str]:
+    return {
+        key: _normalize_value(value)
+        for key, value in dotenv_values(env_path).items()
+    }
+
+
 @dataclass(slots=True)
 class AppSettings:
     root_dir: Path
@@ -26,6 +124,7 @@ class AppSettings:
     bm25_path: Path
     chunk_artifact_path: Path
     checkpoint_artifact_path: Path
+    config_source: str
     azure_endpoint: str
     azure_api_version: str
     azure_api_key: str
@@ -44,7 +143,31 @@ class AppSettings:
     def from_env(cls, root_dir: Path | None = None) -> "AppSettings":
         root = root_dir or Path.cwd()
         env_path = root / ".env"
-        values = {key: value or "" for key, value in dotenv_values(env_path).items()}
+        streamlit_values = _load_streamlit_secret_values()
+        dotenv_map = _load_dotenv_values(env_path)
+        source_labels: set[str] = set()
+        resolved_values: dict[str, str] = {}
+
+        def resolve_value(setting_name: str) -> str:
+            secret_value = streamlit_values.get(setting_name, "")
+            if secret_value:
+                source_labels.add("streamlit_secrets")
+                return secret_value
+            dotenv_key = DOTENV_ALIASES[setting_name]
+            dotenv_value = dotenv_map.get(dotenv_key, "")
+            if dotenv_value:
+                source_labels.add("dotenv")
+                return dotenv_value
+            return ""
+
+        for setting_name in DOTENV_ALIASES:
+            resolved_values[setting_name] = resolve_value(setting_name)
+
+        config_source = (
+            "mixed"
+            if len(source_labels) > 1
+            else next(iter(source_labels), "unconfigured")
+        )
         artifacts_dir = root / "artifacts"
         docstore_dir = artifacts_dir / "docstore"
         indexes_dir = artifacts_dir / "indexes"
@@ -67,13 +190,12 @@ class AppSettings:
             bm25_path=indexes_dir / "bm25_index.json",
             chunk_artifact_path=docstore_dir / "chunks.jsonl",
             checkpoint_artifact_path=sessions_dir / "checkpoints.jsonl",
-            azure_endpoint=values.get("AZURE_OPENAI_ENDPOINT", "").strip(),
-            azure_api_version=values.get("AZURE_OPENAI_API_VERSION", "").strip(),
-            azure_api_key=values.get("AZURE_OPENAI_API_KEY", "").strip(),
-            azure_chat_deployment=values.get("AZURE_OPENAI_CHAT_DEPLOYMENT", "").strip(),
-            azure_embeddings_deployment=values.get(
-                "AZURE_OPENAI_EMBEDDINGS_DEPLOYMENT", ""
-            ).strip(),
+            config_source=config_source,
+            azure_endpoint=resolved_values["azure_endpoint"],
+            azure_api_version=resolved_values["azure_api_version"],
+            azure_api_key=resolved_values["azure_api_key"],
+            azure_chat_deployment=resolved_values["azure_chat_deployment"],
+            azure_embeddings_deployment=resolved_values["azure_embeddings_deployment"],
         )
 
     def ensure_directories(self) -> None:
@@ -109,7 +231,11 @@ class AppSettings:
 
     def validate(self) -> list[str]:
         issues: list[str] = []
-        if not self.env_path.exists():
+        if self.config_source == "unconfigured":
+            issues.append(
+                "No Azure OpenAI configuration was found in Streamlit secrets or the repository .env file."
+            )
+        elif self.config_source == "dotenv" and not self.env_path.exists():
             issues.append("Missing .env file in the repository root.")
         if not self.azure_endpoint:
             issues.append("AZURE_OPENAI_ENDPOINT is missing.")
@@ -142,6 +268,7 @@ class AppSettings:
             host = self.azure_endpoint.replace("https://", "").replace("http://", "").strip("/")
         return {
             "env_path": str(self.env_path),
+            "config_source": self.config_source,
             "endpoint_host": host,
             "api_version": self.azure_api_version,
             "chat_configured": self.chat_available,

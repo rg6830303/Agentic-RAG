@@ -4,6 +4,7 @@ import unittest
 import uuid
 from pathlib import Path
 import shutil
+from unittest.mock import patch
 
 from src.chunking.strategies import ChunkingService
 from src.config.settings import AppSettings
@@ -51,6 +52,31 @@ class SmokeTests(unittest.TestCase):
         self.assertTrue(self.settings.chat_available)
         self.assertTrue(self.settings.embeddings_available)
         self.assertEqual(self.settings.azure_api_version, "2024-12-01-preview")
+        self.assertEqual(self.settings.config_source, "dotenv")
+
+    def test_streamlit_secrets_take_precedence_over_dotenv(self) -> None:
+        with patch(
+            "src.config.settings._load_streamlit_secret_values",
+            return_value={
+                "azure_api_key": "secret-key",
+                "azure_endpoint": "https://streamlit-secret.openai.azure.com/",
+                "azure_api_version": "2025-01-01-preview",
+                "azure_chat_deployment": "streamlit-chat",
+                "azure_embeddings_deployment": "streamlit-embed",
+            },
+        ):
+            settings = AppSettings.from_env(self.root)
+
+        self.assertEqual(settings.config_source, "streamlit_secrets")
+        self.assertEqual(settings.azure_api_key, "secret-key")
+        self.assertEqual(
+            settings.azure_endpoint,
+            "https://streamlit-secret.openai.azure.com/",
+        )
+        self.assertEqual(settings.azure_chat_deployment, "streamlit-chat")
+        self.assertFalse(
+            any("Missing .env file" in issue for issue in settings.validate())
+        )
 
     def test_docstore_chunking_and_bm25(self) -> None:
         docstore = SQLiteDocstore(self.settings)
