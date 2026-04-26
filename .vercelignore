@@ -18,8 +18,8 @@ pages/
 src/
 tests/
 requirements-local.txt
+streamlit_app.py
 
-app.py
 run_app.cmd
 ARCHITECTURE.md
 CHUNKING.md

@@ -9,4 +9,4 @@ dependencies = [
 ]
 
 [project.scripts]
-app = "api.index:app"
+app = "app:app"

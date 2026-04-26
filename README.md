@@ -4,8 +4,8 @@ This repository contains a complete local-first Agentic RAG system built with Py
 
 ## Highlights
 
-- Thin `app.py` bootstrap with multipage Streamlit UI under `pages/`
-- Vercel-compatible FastAPI entrypoint under `api/index.py`
+- Thin `streamlit_app.py` bootstrap with multipage Streamlit UI under `pages/`
+- Vercel-compatible FastAPI entrypoint at `app.py`, also re-exported from `api/index.py`
 - Local ingestion for PDF, DOCX, text, markdown, code, CSV, JSON, and SQL
 - Fixed, semantic, recursive, adaptive, hierarchical, and auto-selected chunking
 - SQLite docstore, persisted FAISS, and persisted standalone BM25
@@ -20,21 +20,21 @@ This repository contains a complete local-first Agentic RAG system built with Py
 3. Configure Azure OpenAI with either:
    - local `.env` values in the repository root, or
    - Streamlit secrets for deployment and `.streamlit/secrets.toml` for local Streamlit-based secret loading
-4. Run `python -m streamlit run app.py` from Windows CMD.
+4. Run `python -m streamlit run streamlit_app.py` from Windows CMD.
 
 Detailed Windows steps are in `WINDOWS_RUN.md`.
 
 ## Vercel Deployment
 
-Vercel's Python runtime expects a serverless-compatible ASGI application. The Streamlit UI and local RAG workspace depend on a writable local filesystem, so the Vercel deployment intentionally exposes a lightweight FastAPI API from `api/index.py`.
+Vercel's Python runtime expects a serverless-compatible ASGI application. The Streamlit UI and local RAG workspace depend on a writable local filesystem, so the Vercel deployment intentionally exposes a lightweight FastAPI API from `app.py`. The same app is re-exported from `api/index.py` for compatibility.
 
 `requirements.txt` is intentionally slim for Vercel. Use `requirements-local.txt` for the full Streamlit app.
 
-`pyproject.toml` points Vercel to the API app with:
+`pyproject.toml` also points Vercel to the root API app with:
 
 ```toml
 [project.scripts]
-app = "api.index:app"
+app = "app:app"
 ```
 
 Deploy the repository with Vercel after committing these files. The deployment exposes:
@@ -52,7 +52,7 @@ Set these Vercel Project Settings environment variables for `/api/chat`:
 - `AZURE_OPENAI_API_VERSION`
 - `AZURE_OPENAI_CHAT_DEPLOYMENT`
 
-The full Streamlit UI still runs locally or on Streamlit-compatible hosting with `python -m streamlit run app.py`.
+The full Streamlit UI still runs locally or on Streamlit-compatible hosting with `python -m streamlit run streamlit_app.py`.
 
 ## Streamlit Cloud Secrets
 

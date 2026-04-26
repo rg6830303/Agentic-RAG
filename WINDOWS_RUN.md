@@ -14,7 +14,7 @@
 python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements-local.txt
-python -m streamlit run app.py
+python -m streamlit run streamlit_app.py
 ```
 
 For this repository, `requirements.txt` is the slim Vercel API dependency set. Use `requirements-local.txt` when running Streamlit.

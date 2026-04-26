@@ -4,13 +4,15 @@ import os
 import unittest
 from unittest.mock import patch
 
-from fastapi import HTTPException
+from fastapi import FastAPI, HTTPException
 
+from app import app as root_app
 from api.index import ChatRequest, chat_completion, health_check, read_root, runtime_info
 
 
 class VercelApiTests(unittest.TestCase):
     def test_health_and_root_metadata(self) -> None:
+        self.assertIsInstance(root_app, FastAPI)
         root = read_root()
         self.assertEqual(root["status"], "ok")
         self.assertEqual(root["health"], "/api/health")

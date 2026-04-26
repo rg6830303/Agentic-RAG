@@ -5,7 +5,7 @@
   "functions": {
     "api/index.py": {
       "maxDuration": 30,
-      "excludeFiles": "{.venv/**,venv/**,env/**,artifacts/**,data/**,pages/**,src/**,tests/**,__pycache__/**,requirements-local.txt,*.zip,*.log,secrets.toml,.env,.env.*}"
+      "excludeFiles": "{.venv/**,venv/**,env/**,artifacts/**,data/**,pages/**,src/**,tests/**,__pycache__/**,requirements-local.txt,streamlit_app.py,*.zip,*.log,secrets.toml,.env,.env.*}"
     }
   }
 }
