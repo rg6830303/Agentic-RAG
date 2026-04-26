@@ -30,6 +30,8 @@ Vercel's Python runtime expects a serverless-compatible ASGI application. The St
 
 `requirements.txt` is intentionally slim for Vercel. Use `requirements-local.txt` for the full Streamlit app.
 
+`vercel.json` intentionally does not define a `functions` block. Vercel's FastAPI framework detector owns the root `app.py` entrypoint, and adding a manual `functions` pattern can cause unmatched function pattern errors.
+
 `pyproject.toml` also points Vercel to the root API app with:
 
 ```toml
