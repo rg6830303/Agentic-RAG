@@ -7,7 +7,17 @@ from unittest.mock import patch
 from fastapi import FastAPI
 
 from app import app as root_app
-from api.index import ChatRequest, chat_completion, corpus_info, health_check, read_root, runtime_info
+from api.index import (
+    ChatRequest,
+    EvaluationRequest,
+    capabilities_info,
+    chat_completion,
+    corpus_info,
+    evaluate,
+    health_check,
+    read_root,
+    runtime_info,
+)
 
 
 class VercelApiTests(unittest.TestCase):
@@ -21,6 +31,12 @@ class VercelApiTests(unittest.TestCase):
         corpus = corpus_info()
         self.assertGreater(corpus["source_count"], 0)
         self.assertGreater(corpus["chunk_count"], 0)
+        self.assertTrue(corpus["indexes"]["hybrid"])
+
+    def test_capabilities_are_exposed(self) -> None:
+        capabilities = capabilities_info()
+        self.assertIn("hybrid", capabilities["retrieval"])
+        self.assertIn("post-generation_pre-final-answer", capabilities["hitl"])
 
     def test_runtime_does_not_expose_secret_values(self) -> None:
         with patch.dict(
@@ -42,8 +58,17 @@ class VercelApiTests(unittest.TestCase):
         with patch.dict(os.environ, {}, clear=True):
             response = chat_completion(ChatRequest(message="How is resistance related to length?"))
 
-        self.assertEqual(response.provider, "local_rag")
+        self.assertEqual(response.provider, "local_agentic_rag")
+        self.assertTrue(response.finalized_answer)
         self.assertTrue(response.citations)
+        self.assertTrue(response.retrieved_chunks)
+        self.assertTrue(response.pipeline)
+        self.assertTrue(response.checkpoints)
+
+    def test_evaluation_endpoint_returns_rows(self) -> None:
+        report = evaluate(EvaluationRequest())
+        self.assertGreater(report.summary["sample_count"], 0)
+        self.assertTrue(report.rows)
 
 
 if __name__ == "__main__":
