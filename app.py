@@ -157,6 +157,25 @@ class ChatHistoryTurn(BaseModel):
     timestamp: str
     user_prompt: str
     ai_response: str
+    user_message_id: str = ""
+    assistant_message_id: str = ""
+    updated_at: str | None = None
+    edited: bool = False
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    citations: list[dict[str, Any]] = Field(default_factory=list)
+    source_snippets: list[dict[str, Any]] = Field(default_factory=list)
+    suggestions: list[str] = Field(default_factory=list)
+
+
+class ChatMessage(BaseModel):
+    message_id: str
+    role: Literal["user", "assistant", "system"]
+    content: str
+    created_at: str
+    updated_at: str | None = None
+    turn_id: str | None = None
+    parent_message_id: str | None = None
+    edited: bool = False
     metadata: dict[str, Any] = Field(default_factory=dict)
     citations: list[dict[str, Any]] = Field(default_factory=list)
     source_snippets: list[dict[str, Any]] = Field(default_factory=list)
@@ -167,6 +186,7 @@ class ChatSessionSummary(BaseModel):
     session_id: str
     session_name: str
     user_agenda: str
+    memory_summary: str = ""
     created_at: str
     updated_at: str
     exchange_count: int
@@ -177,6 +197,7 @@ class ChatSessionSummary(BaseModel):
 
 class ChatSessionView(ChatSessionSummary):
     history: list[ChatHistoryTurn] = Field(default_factory=list)
+    messages: list[ChatMessage] = Field(default_factory=list)
 
 
 class ChatHistoryList(BaseModel):
@@ -185,6 +206,39 @@ class ChatHistoryList(BaseModel):
 
 class ChatSessionUpdate(BaseModel):
     session_name: str | None = Field(default=None, max_length=120)
+
+
+class ChatMessageEditRequest(BaseModel):
+    message: str = Field(..., min_length=1, max_length=12_000)
+    top_k: int = Field(default=5, ge=1, le=10)
+    retrieval_mode: Literal["bm25", "hybrid", "hierarchical"] = "hybrid"
+    use_generation: bool = True
+    use_reranking: bool = True
+    self_rag: bool = True
+    checkpoints_enabled: bool = True
+    require_context_review: bool = False
+    require_final_approval: bool = False
+    sentence_attention: bool = True
+    citation_display: bool = True
+    use_wikipedia: bool = True
+    temperature: float = Field(default=0.1, ge=0.0, le=1.0)
+    max_tokens: int = Field(default=700, ge=100, le=2_000)
+
+
+class ChatRegenerateRequest(BaseModel):
+    top_k: int = Field(default=5, ge=1, le=10)
+    retrieval_mode: Literal["bm25", "hybrid", "hierarchical"] = "hybrid"
+    use_generation: bool = True
+    use_reranking: bool = True
+    self_rag: bool = True
+    checkpoints_enabled: bool = True
+    require_context_review: bool = False
+    require_final_approval: bool = False
+    sentence_attention: bool = True
+    citation_display: bool = True
+    use_wikipedia: bool = True
+    temperature: float = Field(default=0.1, ge=0.0, le=1.0)
+    max_tokens: int = Field(default=700, ge=100, le=2_000)
 
 
 class ChatResponse(BaseModel):
@@ -207,7 +261,9 @@ class ChatResponse(BaseModel):
     session_id: str | None = None
     session_name: str | None = None
     history: list[ChatHistoryTurn] = Field(default_factory=list)
+    messages: list[ChatMessage] = Field(default_factory=list)
     agenda_summary: str = ""
+    memory_summary: str = ""
     suggestions: list[str] = Field(default_factory=list)
     chat_saved: bool = False
 
@@ -415,6 +471,115 @@ def _suggest_next_prompts(
     return unique
 
 
+def _message_id(prefix: str) -> str:
+    return f"{prefix}_{uuid4().hex[:12]}"
+
+
+def _turn_user_message_id(turn: dict[str, Any]) -> str:
+    return str(turn.get("user_message_id") or f"msg_user_{turn.get('turn_id', uuid4().hex[:12])}")
+
+
+def _turn_assistant_message_id(turn: dict[str, Any]) -> str:
+    return str(turn.get("assistant_message_id") or f"msg_assistant_{turn.get('turn_id', uuid4().hex[:12])}")
+
+
+def _normalize_turn(turn: dict[str, Any]) -> dict[str, Any]:
+    turn_id = str(turn.get("turn_id") or f"turn_{uuid4().hex[:12]}")
+    timestamp = str(turn.get("timestamp") or turn.get("created_at") or _utc_now_iso())
+    normalized = {
+        "turn_id": turn_id,
+        "timestamp": timestamp,
+        "user_prompt": str(turn.get("user_prompt") or ""),
+        "ai_response": str(turn.get("ai_response") or ""),
+        "user_message_id": str(turn.get("user_message_id") or f"msg_user_{turn_id}"),
+        "assistant_message_id": str(turn.get("assistant_message_id") or f"msg_assistant_{turn_id}"),
+        "updated_at": turn.get("updated_at"),
+        "edited": bool(turn.get("edited") or False),
+        "metadata": dict(turn.get("metadata") or {}),
+        "citations": list(turn.get("citations") or []),
+        "source_snippets": list(turn.get("source_snippets") or []),
+        "suggestions": list(turn.get("suggestions") or []),
+    }
+    return normalized
+
+
+def _normalize_history(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [_normalize_turn(turn) for turn in history if isinstance(turn, dict)]
+
+
+def _messages_from_history(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    messages: list[dict[str, Any]] = []
+    for turn in _normalize_history(history):
+        user_message_id = _turn_user_message_id(turn)
+        assistant_message_id = _turn_assistant_message_id(turn)
+        messages.append(
+            {
+                "message_id": user_message_id,
+                "role": "user",
+                "content": str(turn.get("user_prompt") or ""),
+                "created_at": str(turn.get("timestamp") or _utc_now_iso()),
+                "updated_at": turn.get("updated_at"),
+                "turn_id": turn["turn_id"],
+                "parent_message_id": None,
+                "edited": bool(turn.get("edited") or False),
+                "metadata": {},
+                "citations": [],
+                "source_snippets": [],
+                "suggestions": [],
+            }
+        )
+        messages.append(
+            {
+                "message_id": assistant_message_id,
+                "role": "assistant",
+                "content": str(turn.get("ai_response") or ""),
+                "created_at": str(turn.get("updated_at") or turn.get("timestamp") or _utc_now_iso()),
+                "updated_at": turn.get("updated_at"),
+                "turn_id": turn["turn_id"],
+                "parent_message_id": user_message_id,
+                "edited": False,
+                "metadata": dict(turn.get("metadata") or {}),
+                "citations": list(turn.get("citations") or []),
+                "source_snippets": list(turn.get("source_snippets") or []),
+                "suggestions": list(turn.get("suggestions") or []),
+            }
+        )
+    return messages
+
+
+def _thread_memory_summary(history: list[dict[str, Any]], existing: str = "") -> str:
+    normalized = _normalize_history(history)
+    if len(normalized) <= 4:
+        return _compact_text(existing, 900)
+    older = normalized[:-4]
+    text = " ".join(
+        f"{turn.get('user_prompt', '')} {turn.get('ai_response', '')}"
+        for turn in older
+    )
+    keywords = _agenda_keywords(text, limit=8)
+    first_goal = _goal_sentence(str(older[0].get("user_prompt", ""))) if older else ""
+    latest_goal = _goal_sentence(str(older[-1].get("user_prompt", ""))) if older else ""
+    summary_parts = [
+        f"Earlier thread focus began with: {first_goal}" if first_goal else "",
+        f"Later older context included: {latest_goal}" if latest_goal and latest_goal != first_goal else "",
+        f"Recurring topics: {', '.join(keywords)}" if keywords else "",
+    ]
+    return _compact_text(" ".join(part for part in summary_parts if part), 900)
+
+
+def _action_to_chat_request(
+    message: str,
+    session_id: str,
+    options: ChatMessageEditRequest | ChatRegenerateRequest,
+    session_name: str | None = None,
+) -> ChatRequest:
+    data = _model_dump(options)
+    data["message"] = message
+    data["session_id"] = session_id
+    data["session_name"] = session_name
+    return ChatRequest(**data)
+
+
 class ChatHistoryService:
     def __init__(self, root: Path) -> None:
         self.root = root
@@ -461,7 +626,7 @@ class ChatHistoryService:
         return True
 
     def _normalize_session(self, data: dict[str, Any]) -> dict[str, Any]:
-        history = list(data.get("history") or [])
+        history = _normalize_history(list(data.get("history") or []))
         last_turn = history[-1] if history else {}
         session_id = str(data.get("session_id") or f"chat_{uuid4().hex[:12]}")
         created_at = str(data.get("created_at") or _utc_now_iso())
@@ -470,11 +635,17 @@ class ChatHistoryService:
             data.get("session_name")
             or _session_name_from_prompt(str(last_turn.get("user_prompt", "")))
         )
+        memory_summary = str(
+            data.get("memory_summary")
+            or _thread_memory_summary(history)
+            or ""
+        )
         return {
-            "version": 1,
+            "version": 2,
             "session_id": session_id,
             "session_name": _compact_text(session_name, 120),
             "user_agenda": str(data.get("user_agenda") or ""),
+            "memory_summary": memory_summary,
             "created_at": created_at,
             "updated_at": updated_at,
             "exchange_count": len(history),
@@ -482,6 +653,7 @@ class ChatHistoryService:
             "last_response": str(last_turn.get("ai_response", "")),
             "metadata": dict(data.get("metadata") or {}),
             "history": history,
+            "messages": _messages_from_history(history),
         }
 
     def create_session(
@@ -491,9 +663,9 @@ class ChatHistoryService:
     ) -> tuple[dict[str, Any], bool]:
         now = _utc_now_iso()
         session_id = f"chat_{uuid4().hex[:14]}"
-        history = list((seed or {}).get("history") or [])
+        history = _normalize_history(list((seed or {}).get("history") or []))
         session = {
-            "version": 1,
+            "version": 2,
             "session_id": session_id,
             "session_name": _compact_text(
                 session_name
@@ -501,6 +673,7 @@ class ChatHistoryService:
                 120,
             ),
             "user_agenda": str((seed or {}).get("user_agenda") or ""),
+            "memory_summary": str((seed or {}).get("memory_summary") or ""),
             "created_at": now,
             "updated_at": now,
             "exchange_count": len(history),
@@ -586,6 +759,7 @@ class ChatHistoryService:
 
             now = _utc_now_iso()
             history = list(session.get("history") or [])
+            turn_id = f"turn_{uuid4().hex[:12]}"
             agenda = _summarize_agenda(
                 str(session.get("user_agenda") or ""),
                 history,
@@ -593,10 +767,14 @@ class ChatHistoryService:
                 citations,
             )
             turn = {
-                "turn_id": f"turn_{uuid4().hex[:12]}",
+                "turn_id": turn_id,
                 "timestamp": now,
+                "updated_at": now,
+                "user_message_id": _message_id("msg_user"),
+                "assistant_message_id": _message_id("msg_assistant"),
                 "user_prompt": user_prompt,
                 "ai_response": ai_response,
+                "edited": False,
                 "metadata": metadata,
                 "citations": [_model_dump(citation) for citation in citations[:5]],
                 "source_snippets": [
@@ -616,9 +794,11 @@ class ChatHistoryService:
                 "suggestions": suggestions,
             }
             history.append(turn)
+            memory_summary = _thread_memory_summary(history, str(session.get("memory_summary") or ""))
             session.update(
                 {
                     "user_agenda": agenda,
+                    "memory_summary": memory_summary,
                     "updated_at": now,
                     "exchange_count": len(history),
                     "last_prompt": user_prompt,
@@ -634,6 +814,125 @@ class ChatHistoryService:
             saved = self._write_session(session)
             return self._normalize_session(session), saved
 
+    def _find_user_turn_index(self, history: list[dict[str, Any]], message_id: str) -> int | None:
+        for index, turn in enumerate(history):
+            identifiers = {
+                str(turn.get("turn_id") or ""),
+                str(turn.get("user_message_id") or ""),
+                f"msg_user_{turn.get('turn_id', '')}",
+            }
+            if message_id in identifiers:
+                return index
+        return None
+
+    def session_before_user_message(
+        self,
+        session_id: str,
+        message_id: str,
+    ) -> tuple[dict[str, Any] | None, int | None]:
+        with self._lock:
+            session = self._read_session(session_id)
+            if not session:
+                return None, None
+            history = list(session.get("history") or [])
+            index = self._find_user_turn_index(history, message_id)
+            if index is None:
+                return session, None
+            branch = dict(session)
+            branch["history"] = history[:index]
+            branch["memory_summary"] = _thread_memory_summary(branch["history"], str(session.get("memory_summary") or ""))
+            return self._normalize_session(branch), index
+
+    def session_before_latest_turn(self, session_id: str) -> tuple[dict[str, Any] | None, int | None]:
+        with self._lock:
+            session = self._read_session(session_id)
+            if not session:
+                return None, None
+            history = list(session.get("history") or [])
+            if not history:
+                return session, None
+            index = len(history) - 1
+            branch = dict(session)
+            branch["history"] = history[:index]
+            branch["memory_summary"] = _thread_memory_summary(branch["history"], str(session.get("memory_summary") or ""))
+            return self._normalize_session(branch), index
+
+    def replace_turn_branch(
+        self,
+        session_id: str,
+        turn_index: int,
+        user_prompt: str,
+        ai_response: str,
+        metadata: dict[str, Any],
+        citations: list[Citation],
+        retrieved_chunks: list[RetrievedChunk],
+        suggestions: list[str],
+        edited: bool,
+    ) -> tuple[dict[str, Any] | None, bool]:
+        with self._lock:
+            session = self._read_session(session_id)
+            if not session:
+                return None, False
+            history = list(session.get("history") or [])
+            if turn_index < 0 or turn_index >= len(history):
+                return None, False
+            original = _normalize_turn(history[turn_index])
+            now = _utc_now_iso()
+            prefix = history[:turn_index]
+            turn = {
+                "turn_id": original["turn_id"],
+                "timestamp": original["timestamp"],
+                "updated_at": now,
+                "user_message_id": original["user_message_id"],
+                "assistant_message_id": _message_id("msg_assistant"),
+                "user_prompt": user_prompt,
+                "ai_response": ai_response,
+                "edited": bool(edited or original.get("edited")),
+                "metadata": metadata,
+                "citations": [_model_dump(citation) for citation in citations[:5]],
+                "source_snippets": [
+                    {
+                        "rank": chunk.rank,
+                        "file_name": chunk.file_name,
+                        "path": chunk.path,
+                        "score": chunk.score,
+                        "source": chunk.source,
+                        "source_type": chunk.source_type,
+                        "source_url": chunk.source_url,
+                        "page_title": chunk.page_title,
+                        "snippet": _compact_text(chunk.text, 520),
+                    }
+                    for chunk in retrieved_chunks[:5]
+                ],
+                "suggestions": suggestions,
+            }
+            new_history = _normalize_history(prefix + [turn])
+            agenda = _summarize_agenda(
+                "",
+                new_history[:-1],
+                user_prompt,
+                citations,
+            )
+            session.update(
+                {
+                    "user_agenda": agenda,
+                    "memory_summary": _thread_memory_summary(new_history),
+                    "updated_at": now,
+                    "exchange_count": len(new_history),
+                    "last_prompt": user_prompt,
+                    "last_response": ai_response,
+                    "history": new_history,
+                    "metadata": {
+                        "last_provider": metadata.get("provider"),
+                        "last_retrieval_mode": metadata.get("retrieval_mode"),
+                        "last_confidence": metadata.get("confidence"),
+                        "branched_from_turn": original["turn_id"] if edited else "",
+                    },
+                }
+            )
+            saved = self._write_session(session)
+            return self._normalize_session(session), saved
+
 
 chat_history_service = ChatHistoryService(CHAT_HISTORY_DIR)
 
@@ -643,6 +942,7 @@ def _session_summary(session: dict[str, Any]) -> ChatSessionSummary:
         session_id=session["session_id"],
         session_name=session["session_name"],
         user_agenda=session.get("user_agenda", ""),
+        memory_summary=session.get("memory_summary", ""),
         created_at=session["created_at"],
         updated_at=session["updated_at"],
         exchange_count=int(session.get("exchange_count") or 0),
@@ -656,6 +956,7 @@ def _session_view(session: dict[str, Any]) -> ChatSessionView:
     return ChatSessionView(
         **_model_dump(_session_summary(session)),
         history=[ChatHistoryTurn(**turn) for turn in session.get("history", [])],
+        messages=[ChatMessage(**message) for message in session.get("messages", _messages_from_history(session.get("history", [])))],
     )
 
 
@@ -667,18 +968,53 @@ def _memory_context_from_session(payload: ChatRequest, session: dict[str, Any] |
         agenda = str(session.get("user_agenda") or "").strip()
         if agenda:
             parts.append(f"User agenda: {agenda}")
-        recent_turns = list(session.get("history") or [])[-4:]
+        memory_summary = str(session.get("memory_summary") or "").strip()
+        if memory_summary:
+            parts.append(f"Thread memory summary: {memory_summary}")
+        recent_turns = list(session.get("history") or [])[-6:]
         if recent_turns:
             transcript = []
             for turn in recent_turns:
                 transcript.append(
-                    "Q: "
+                    "User: "
                     + _compact_text(str(turn.get("user_prompt", "")), 180)
-                    + " A: "
-                    + _compact_text(str(turn.get("ai_response", "")), 240)
+                    + " Assistant: "
+                    + _compact_text(str(turn.get("ai_response", "")), 260)
                 )
             parts.append("Recent conversation: " + " | ".join(transcript))
     return _compact_text("\n".join(parts), 3_800)
+
+
+def _chat_response_metadata(response: ChatResponse) -> dict[str, Any]:
+    return {
+        "retrieval_mode": response.retrieval_mode,
+        "confidence": response.confidence,
+        "provider": response.provider,
+        "needs_review": response.needs_review,
+        "used_methods": response.used_methods,
+        "citation_count": len(response.citations),
+        "retrieved_chunk_count": len(response.retrieved_chunks),
+        "wikipedia_count": sum(1 for chunk in response.retrieved_chunks if chunk.source_type == "wikipedia"),
+        "guardrails": _model_dump(response.guardrails),
+        "checkpoints": [_model_dump(checkpoint) for checkpoint in response.checkpoints],
+        "pipeline": [_model_dump(step) for step in response.pipeline],
+    }
+
+
+def _generate_chat_turn(
+    payload: ChatRequest,
+    session_context: dict[str, Any] | None,
+) -> tuple[ChatResponse, str, list[str], dict[str, Any]]:
+    memory_context = _memory_context_from_session(payload, session_context)
+    response = _answer_pipeline(_copy_chat_request(payload, memory_context=memory_context))
+    projected_agenda = _summarize_agenda(
+        str((session_context or {}).get("user_agenda") or ""),
+        list((session_context or {}).get("history") or []),
+        payload.message.strip(),
+        response.citations,
+    )
+    suggestions = _suggest_next_prompts(payload.message.strip(), response, projected_agenda)
+    return response, projected_agenda, suggestions, _chat_response_metadata(response)
 
 
 def _env_value(name: str) -> str:
@@ -1868,6 +2204,16 @@ APP_HTML = """<!doctype html>
       font-weight: 900;
     }
     .session-list { display: grid; gap: 9px; }
+    .chat-search {
+      width: 100%;
+      min-height: 40px;
+      margin-bottom: 10px;
+      color: var(--ink);
+      background: rgba(9, 26, 49, 0.82);
+      border: 1px solid var(--line-soft);
+      border-radius: 8px;
+      padding: 10px 11px;
+    }
     .session-card {
       width: 100%;
       text-align: left;
@@ -1983,10 +2329,71 @@ APP_HTML = """<!doctype html>
       font-size: 13px;
       font-weight: 800;
     }
+    .message-content {
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
     .message-meta {
       margin-top: 9px;
       display: flex;
       gap: 7px;
+      flex-wrap: wrap;
+    }
+    .message-actions {
+      margin-top: 10px;
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+      opacity: 0.82;
+    }
+    .message:hover .message-actions,
+    .message:focus-within .message-actions {
+      opacity: 1;
+    }
+    .message-action {
+      min-height: 32px;
+      border: 1px solid var(--line-soft);
+      border-radius: 999px;
+      padding: 6px 10px;
+      color: var(--soft);
+      background: rgba(9, 26, 49, 0.74);
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 800;
+      display: inline-flex;
+      gap: 6px;
+      align-items: center;
+    }
+    .message-action:hover:not(:disabled) {
+      border-color: rgba(137, 206, 255, 0.55);
+      color: var(--cyan);
+      background: rgba(16, 36, 63, 0.92);
+    }
+    .edited-label {
+      color: var(--muted);
+      font-size: 11px;
+      font-family: "JetBrains Mono", ui-monospace, monospace;
+      text-transform: uppercase;
+    }
+    .edit-box {
+      display: grid;
+      gap: 10px;
+    }
+    .edit-box textarea {
+      width: 100%;
+      min-height: 110px;
+      resize: vertical;
+      color: var(--ink);
+      background: rgba(1, 15, 31, 0.9);
+      border: 1px solid var(--cyan);
+      border-radius: 10px;
+      padding: 12px;
+      line-height: 1.55;
+    }
+    .edit-actions {
+      display: flex;
+      gap: 8px;
       flex-wrap: wrap;
     }
     .composer {
@@ -2479,6 +2886,8 @@ APP_HTML = """<!doctype html>
         font-size: 14px;
         line-height: 1.62;
       }
+      .message-action { min-height: 40px; }
+      .edit-actions { gap: 8px; }
       .message-row.assistant .message { max-width: 100%; }
       .empty-state {
         align-self: start;
@@ -2605,6 +3014,14 @@ APP_HTML = """<!doctype html>
         max-width: 100%;
         font-size: 13.5px;
       }
+      .edit-actions {
+        display: grid;
+        grid-template-columns: 1fr;
+      }
+      .edit-actions .message-action {
+        justify-content: center;
+        min-height: 44px;
+      }
       .composer {
         padding: 10px;
         gap: 9px;
@@ -2654,6 +3071,7 @@ APP_HTML = """<!doctype html>
           <span>Saved Chats</span>
           <button class="icon-button" id="cloneSessionButton" type="button" title="Clone active chat"><span class="material-symbols-outlined">content_copy</span> Clone</button>
         </div>
+        <input class="chat-search" id="chatSearch" type="search" placeholder="Search chats" aria-label="Search saved chats">
         <div id="sessionList" class="session-list">
           <p class="empty">No saved sessions yet.</p>
         </div>
@@ -2859,7 +3277,9 @@ APP_HTML = """<!doctype html>
       activeSessionId: null,
       activeSession: null,
       isGenerating: false,
-      responsiveReady: false
+      responsiveReady: false,
+      editingMessageId: null,
+      chatSearch: ""
     };
     const LOCAL_CHAT_KEY = "agentic_rag_chats_v1";
     const $ = (selector) => document.querySelector(selector);
@@ -2892,12 +3312,13 @@ APP_HTML = """<!doctype html>
     }
 
     function sessionSummary(session) {
-      const history = session.history || [];
+      const history = normalizedHistory(session);
       const lastTurn = history.length ? history[history.length - 1] : {};
       return {
         session_id: session.session_id,
         session_name: session.session_name || session.title || "RAG conversation",
         user_agenda: session.user_agenda || session.agenda_summary || "",
+        memory_summary: session.memory_summary || "",
         created_at: session.created_at || new Date().toISOString(),
         updated_at: session.updated_at || new Date().toISOString(),
         exchange_count: session.exchange_count || history.length || 0,
@@ -2925,7 +3346,8 @@ APP_HTML = """<!doctype html>
       const local = readLocalChats().filter((item) => item.session_id !== session.session_id);
       const stored = {
         ...sessionSummary(session),
-        history: session.history || []
+        history: normalizedHistory(session),
+        messages: session.messages || []
       };
       writeLocalChats([stored, ...local]);
     }
@@ -2944,6 +3366,41 @@ APP_HTML = """<!doctype html>
         hour: "2-digit",
         minute: "2-digit"
       }).format(date);
+    }
+
+    function userMessageId(turn) {
+      return turn.user_message_id || `msg_user_${turn.turn_id || "draft"}`;
+    }
+
+    function assistantMessageId(turn) {
+      return turn.assistant_message_id || `msg_assistant_${turn.turn_id || "draft"}`;
+    }
+
+    function normalizedHistory(session) {
+      if (!session) return [];
+      const history = Array.isArray(session.history) ? session.history : [];
+      return history.map((turn) => ({
+        ...turn,
+        user_message_id: turn.user_message_id || userMessageId(turn),
+        assistant_message_id: turn.assistant_message_id || assistantMessageId(turn),
+        edited: Boolean(turn.edited)
+      }));
+    }
+
+    function requestOptions() {
+      return {
+        top_k: Number($("#topK").value),
+        retrieval_mode: $("#retrievalMode").value,
+        use_generation: $("#useGeneration").checked,
+        use_reranking: $("#useReranking").checked,
+        self_rag: $("#selfRag").checked,
+        use_wikipedia: $("#useWikipedia").checked,
+        checkpoints_enabled: true,
+        require_context_review: $("#contextReview").checked,
+        require_final_approval: $("#finalApproval").checked,
+        sentence_attention: $("#sentenceAttention").checked,
+        citation_display: true
+      };
     }
 
     function isCompactLayout() {
@@ -3029,19 +3486,9 @@ APP_HTML = """<!doctype html>
 
     function payloadFromForm() {
       return {
+        ...requestOptions(),
         message: $("#question").value.trim(),
-        session_id: state.activeSessionId,
-        top_k: Number($("#topK").value),
-        retrieval_mode: $("#retrievalMode").value,
-        use_generation: $("#useGeneration").checked,
-        use_reranking: $("#useReranking").checked,
-        self_rag: $("#selfRag").checked,
-        use_wikipedia: $("#useWikipedia").checked,
-        checkpoints_enabled: true,
-        require_context_review: $("#contextReview").checked,
-        require_final_approval: $("#finalApproval").checked,
-        sentence_attention: $("#sentenceAttention").checked,
-        citation_display: true
+        session_id: state.activeSessionId
       };
     }
 
@@ -3064,6 +3511,9 @@ APP_HTML = """<!doctype html>
     }
 
     function appendPendingTurn(message) {
+      if ($("#messages .empty-state")) {
+        $("#messages").innerHTML = "";
+      }
       $("#messages").insertAdjacentHTML("beforeend", `
         <article class="message-row user"><div class="message">${escapeHtml(message)}</div></article>
         <article class="message-row assistant loading" data-pending-response="true">
@@ -3102,11 +3552,21 @@ APP_HTML = """<!doctype html>
       setGenerating(true);
       appendPendingTurn(body.message);
       try {
-        const response = await fetch("/api/chat", {
+        const endpoint = state.activeSessionId
+          ? `/api/chats/${encodeURIComponent(state.activeSessionId)}/messages`
+          : "/api/chat";
+        let response = await fetch(endpoint, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body)
         });
+        if (!response.ok && response.status === 404 && state.activeSessionId) {
+          response = await fetch("/api/chat", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body)
+          });
+        }
         const payload = await response.json();
         if (!response.ok) throw new Error(payload.detail || "Request failed");
         renderChat(payload);
@@ -3232,11 +3692,20 @@ APP_HTML = """<!doctype html>
     }
 
     function renderSessionList() {
-      if (!state.sessions.length) {
+      const query = state.chatSearch.trim().toLowerCase();
+      const sessions = query
+        ? state.sessions.filter((session) => [
+            session.session_name,
+            session.last_prompt,
+            session.last_response,
+            session.user_agenda
+          ].join(" ").toLowerCase().includes(query))
+        : state.sessions;
+      if (!sessions.length) {
         $("#sessionList").innerHTML = empty("No saved sessions yet.");
         return;
       }
-      $("#sessionList").innerHTML = state.sessions.map((session) => `
+      $("#sessionList").innerHTML = sessions.map((session) => `
         <button class="session-card ${session.session_id === state.activeSessionId ? "active" : ""}" data-session="${escapeHtml(session.session_id)}">
           <strong>${escapeHtml(session.session_name)}</strong>
           <span>${session.exchange_count} exchanges - ${escapeHtml(formatDate(session.updated_at))}</span>
@@ -3267,16 +3736,18 @@ APP_HTML = """<!doctype html>
     }
 
     function renderSession(session) {
-      state.activeSession = session || null;
+      const normalizedSession = session ? { ...session, history: normalizedHistory(session), messages: session.messages || [] } : null;
+      state.activeSession = normalizedSession;
       state.activeSessionId = session ? session.session_id : null;
-      if (session) saveLocalSession(session);
-      $("#currentSessionName").textContent = session ? session.session_name : "New RAG conversation";
+      state.editingMessageId = null;
+      if (normalizedSession) saveLocalSession(normalizedSession);
+      $("#currentSessionName").textContent = normalizedSession ? normalizedSession.session_name : "New RAG conversation";
       updateMobileHeader();
-      $("#agendaSummary").textContent = session && session.user_agenda
-        ? session.user_agenda
+      $("#agendaSummary").textContent = normalizedSession && normalizedSession.user_agenda
+        ? normalizedSession.user_agenda
         : "The session agenda will build from your prompts.";
-      $("#agendaSummary").classList.toggle("empty", !(session && session.user_agenda));
-      const history = session ? (session.history || []) : [];
+      $("#agendaSummary").classList.toggle("empty", !(normalizedSession && normalizedSession.user_agenda));
+      const history = normalizedSession ? normalizedSession.history : [];
       renderSessionMessages(history);
       const lastTurn = history.length ? history[history.length - 1] : null;
       renderSuggestions(lastTurn ? (lastTurn.suggestions || []) : []);
@@ -3308,12 +3779,19 @@ APP_HTML = """<!doctype html>
     }
 
     function renderSessionMessages(history) {
-      if (!history.length) {
+      const turns = (history || []).map((turn) => ({
+        ...turn,
+        user_message_id: userMessageId(turn),
+        assistant_message_id: assistantMessageId(turn),
+        edited: Boolean(turn.edited)
+      }));
+      if (!turns.length) {
         renderEmptyChat();
         return;
       }
-      $("#messages").innerHTML = history.map((turn) => {
+      $("#messages").innerHTML = turns.map((turn, index) => {
         const meta = turn.metadata || {};
+        const isLatestTurn = index === turns.length - 1;
         const metaBadges = [
           meta.provider ? badge(meta.provider) : "",
           meta.retrieval_mode ? badge(meta.retrieval_mode) : "",
@@ -3330,14 +3808,37 @@ APP_HTML = """<!doctype html>
             ${citation.source_url ? `<p><a href="${escapeHtml(citation.source_url)}" target="_blank" rel="noreferrer">${escapeHtml(citation.source_url)}</a></p>` : ""}
           </details>
         `).join("");
+        const editing = state.editingMessageId === turn.user_message_id;
+        const userBody = editing
+          ? `
+            <div class="edit-box">
+              <textarea id="editDraft" aria-label="Edit prompt">${escapeHtml(turn.user_prompt)}</textarea>
+              <div class="edit-actions">
+                <button class="message-action" data-action="save-edit" data-message-id="${escapeHtml(turn.user_message_id)}" type="button">Save & regenerate</button>
+                <button class="message-action" data-action="cancel-edit" type="button">Cancel</button>
+              </div>
+            </div>
+          `
+          : `
+            <div class="message-content">${escapeHtml(turn.user_prompt)}</div>
+            <div class="message-actions">
+              ${turn.edited ? `<span class="edited-label">Edited</span>` : ""}
+              <button class="message-action" data-action="edit-user" data-message-id="${escapeHtml(turn.user_message_id)}" type="button">Edit</button>
+              <button class="message-action" data-action="copy" data-copy="${escapeHtml(turn.user_prompt)}" type="button">Copy</button>
+            </div>
+          `;
         return `
-          <article class="message-row user">
-            <div class="message">${escapeHtml(turn.user_prompt)}</div>
+          <article class="message-row user" data-message-id="${escapeHtml(turn.user_message_id)}">
+            <div class="message">${userBody}</div>
           </article>
-          <article class="message-row assistant">
+          <article class="message-row assistant" data-message-id="${escapeHtml(turn.assistant_message_id)}">
             <div class="message">
-              ${escapeHtml(turn.ai_response)}
+              <div class="message-content">${escapeHtml(turn.ai_response)}</div>
               <div class="message-meta">${metaBadges}</div>
+              <div class="message-actions">
+                <button class="message-action" data-action="copy" data-copy="${escapeHtml(turn.ai_response)}" type="button">Copy</button>
+                ${isLatestTurn ? `<button class="message-action" data-action="regenerate" type="button">Regenerate</button>` : ""}
+              </div>
               ${citationCards ? `<div class="attention"><h4>Sources</h4>${citationCards}</div>` : ""}
             </div>
           </article>
@@ -3345,7 +3846,115 @@ APP_HTML = """<!doctype html>
       }).join("");
       const messageList = $("#messages");
       messageList.scrollTop = messageList.scrollHeight;
+      bindMessageActions();
       syncResponsivePanels();
+    }
+
+    async function copyText(text) {
+      try {
+        await navigator.clipboard.writeText(text);
+      } catch (_error) {
+        const textarea = document.createElement("textarea");
+        textarea.value = text;
+        textarea.setAttribute("readonly", "");
+        textarea.style.position = "fixed";
+        textarea.style.opacity = "0";
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand("copy");
+        textarea.remove();
+      }
+    }
+
+    function bindMessageActions() {
+      $$("#messages [data-action='copy']").forEach((button) => {
+        button.addEventListener("click", () => copyText(button.dataset.copy || ""));
+      });
+      $$("#messages [data-action='edit-user']").forEach((button) => {
+        button.addEventListener("click", () => {
+          state.editingMessageId = button.dataset.messageId;
+          renderSessionMessages(normalizedHistory(state.activeSession));
+          const draft = $("#editDraft");
+          if (draft) {
+            draft.focus();
+            draft.selectionStart = draft.value.length;
+            draft.selectionEnd = draft.value.length;
+          }
+        });
+      });
+      $$("#messages [data-action='cancel-edit']").forEach((button) => {
+        button.addEventListener("click", () => {
+          state.editingMessageId = null;
+          renderSessionMessages(normalizedHistory(state.activeSession));
+        });
+      });
+      $$("#messages [data-action='save-edit']").forEach((button) => {
+        button.addEventListener("click", () => editUserMessage(button.dataset.messageId));
+      });
+      $$("#messages [data-action='regenerate']").forEach((button) => {
+        button.addEventListener("click", regenerateLatestResponse);
+      });
+    }
+
+    async function editUserMessage(messageId) {
+      if (!state.activeSessionId || state.isGenerating) return;
+      const draft = $("#editDraft");
+      const message = draft ? draft.value.trim() : "";
+      if (!message) {
+        if (draft) draft.focus();
+        return;
+      }
+      setGenerating(true);
+      try {
+        const response = await fetch(`/api/chats/${encodeURIComponent(state.activeSessionId)}/messages/${encodeURIComponent(messageId)}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...requestOptions(), message })
+        });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.detail || "Could not edit prompt");
+        state.editingMessageId = null;
+        renderSession(payload);
+        await loadHistory();
+        renderSessionList();
+      } catch (error) {
+        $("#badges").innerHTML = badge(error.message, "bad");
+      } finally {
+        setGenerating(false);
+      }
+    }
+
+    async function regenerateLatestResponse() {
+      if (!state.activeSessionId || state.isGenerating) return;
+      setGenerating(true);
+      $("#messages").insertAdjacentHTML("beforeend", `
+        <article class="message-row assistant loading" data-pending-response="true">
+          <div class="message">
+            <div class="loading-copy">
+              <span class="typing-indicator" aria-hidden="true"><span></span><span></span><span></span></span>
+              <span>Regenerating the latest answer with thread memory...</span>
+            </div>
+          </div>
+        </article>
+      `);
+      $("#messages").scrollTop = $("#messages").scrollHeight;
+      try {
+        const response = await fetch(`/api/chats/${encodeURIComponent(state.activeSessionId)}/regenerate`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(requestOptions())
+        });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.detail || "Could not regenerate answer");
+        renderSession(payload);
+        await loadHistory();
+        renderSessionList();
+      } catch (error) {
+        replacePendingWithError(error.message);
+        $("#badges").innerHTML = badge(error.message, "bad");
+      } finally {
+        setGenerating(false);
+      }
     }
 
     function renderRunMetadata(metadata) {
@@ -3377,21 +3986,24 @@ APP_HTML = """<!doctype html>
     function renderChat(payload) {
       state.last = payload;
       state.activeSessionId = payload.session_id;
+      state.editingMessageId = null;
       state.activeSession = {
         session_id: payload.session_id,
         session_name: payload.session_name || "RAG conversation",
         user_agenda: payload.agenda_summary || "",
+        memory_summary: payload.memory_summary || "",
         created_at: payload.history && payload.history.length ? payload.history[0].timestamp : new Date().toISOString(),
         updated_at: new Date().toISOString(),
         exchange_count: payload.history ? payload.history.length : 0,
-        history: payload.history || []
+        history: normalizedHistory(payload),
+        messages: payload.messages || []
       };
       saveLocalSession(state.activeSession);
       $("#currentSessionName").textContent = state.activeSession.session_name;
       updateMobileHeader("Saved");
       $("#agendaSummary").textContent = payload.agenda_summary || "The session agenda will build from your prompts.";
       $("#agendaSummary").classList.toggle("empty", !payload.agenda_summary);
-      renderSessionMessages(payload.history || []);
+      renderSessionMessages(state.activeSession.history || []);
       renderSuggestions(payload.suggestions || []);
       renderRunMetadata({
         provider: payload.provider,
@@ -3534,6 +4146,11 @@ APP_HTML = """<!doctype html>
       $("#question").focus();
     });
 
+    $("#chatSearch").addEventListener("input", (event) => {
+      state.chatSearch = event.target.value;
+      renderSessionList();
+    });
+
     $("#newSessionButton").addEventListener("click", () => {
       closeDrawer();
       renderSession(null);
@@ -3642,6 +4259,9 @@ def api_info() -> dict[str, Any]:
         "chat": "/api/chat",
         "chat_history": "/api/chat/history",
         "chats": "/api/chats",
+        "chat_messages": "/api/chats/{session_id}/messages",
+        "chat_message_edit": "/api/chats/{session_id}/messages/{message_id}",
+        "chat_regenerate": "/api/chats/{session_id}/regenerate",
         "evaluate": "/api/evaluate",
     }
 
@@ -3751,6 +4371,89 @@ def update_chat(session_id: str, payload: ChatSessionUpdate) -> ChatSessionView:
     return _session_view(session)
 
 
+@app.post("/api/chats/{session_id}/messages", response_model=ChatResponse)
+def append_chat_message(session_id: str, payload: ChatRequest) -> ChatResponse:
+    return chat_completion(_copy_chat_request(payload, session_id=session_id))
+
+
+@app.patch("/api/chats/{session_id}/messages/{message_id}", response_model=ChatSessionView)
+def edit_chat_message(
+    session_id: str,
+    message_id: str,
+    payload: ChatMessageEditRequest,
+) -> ChatSessionView:
+    branch_session, turn_index = chat_history_service.session_before_user_message(session_id, message_id)
+    if not branch_session:
+        raise HTTPException(status_code=404, detail="Chat session not found.")
+    if turn_index is None:
+        raise HTTPException(status_code=404, detail="User message not found.")
+    prompt = payload.message.strip()
+    chat_payload = _action_to_chat_request(
+        prompt,
+        session_id,
+        payload,
+        session_name=branch_session.get("session_name"),
+    )
+    response, _projected_agenda, suggestions, metadata = _generate_chat_turn(chat_payload, branch_session)
+    session, saved = chat_history_service.replace_turn_branch(
+        session_id=session_id,
+        turn_index=turn_index,
+        user_prompt=prompt,
+        ai_response=response.finalized_answer or response.answer,
+        metadata=metadata,
+        citations=response.citations,
+        retrieved_chunks=response.retrieved_chunks,
+        suggestions=suggestions,
+        edited=True,
+    )
+    if not session:
+        raise HTTPException(status_code=404, detail="User message not found.")
+    session.setdefault("metadata", {})["last_edit_saved"] = saved
+    return _session_view(session)
+
+
+@app.post("/api/chats/{session_id}/regenerate", response_model=ChatSessionView)
+def regenerate_chat_response(
+    session_id: str,
+    payload: ChatRegenerateRequest,
+) -> ChatSessionView:
+    branch_session, turn_index = chat_history_service.session_before_latest_turn(session_id)
+    if not branch_session:
+        raise HTTPException(status_code=404, detail="Chat session not found.")
+    if turn_index is None:
+        raise HTTPException(status_code=400, detail="No assistant response to regenerate.")
+    original_session = chat_history_service.get_session(session_id)
+    if not original_session:
+        raise HTTPException(status_code=404, detail="Chat session not found.")
+    history = list(original_session.get("history") or [])
+    latest_turn = _normalize_turn(history[turn_index])
+    prompt = str(latest_turn.get("user_prompt") or "").strip()
+    if not prompt:
+        raise HTTPException(status_code=400, detail="Latest user prompt is empty.")
+    chat_payload = _action_to_chat_request(
+        prompt,
+        session_id,
+        payload,
+        session_name=branch_session.get("session_name"),
+    )
+    response, _projected_agenda, suggestions, metadata = _generate_chat_turn(chat_payload, branch_session)
+    session, saved = chat_history_service.replace_turn_branch(
+        session_id=session_id,
+        turn_index=turn_index,
+        user_prompt=prompt,
+        ai_response=response.finalized_answer or response.answer,
+        metadata=metadata,
+        citations=response.citations,
+        retrieved_chunks=response.retrieved_chunks,
+        suggestions=suggestions,
+        edited=bool(latest_turn.get("edited")),
+    )
+    if not session:
+        raise HTTPException(status_code=404, detail="Latest turn not found.")
+    session.setdefault("metadata", {})["last_regenerate_saved"] = saved
+    return _session_view(session)
+
+
 @app.delete("/api/chats/{session_id}")
 def delete_chat(session_id: str) -> dict[str, Any]:
     deleted = chat_history_service.delete_session(session_id)
@@ -3766,28 +4469,7 @@ def chat_completion(payload: ChatRequest) -> ChatResponse:
         if payload.session_id
         else None
     )
-    memory_context = _memory_context_from_session(payload, active_session)
-    response = _answer_pipeline(_copy_chat_request(payload, memory_context=memory_context))
-    projected_agenda = _summarize_agenda(
-        str((active_session or {}).get("user_agenda") or ""),
-        list((active_session or {}).get("history") or []),
-        payload.message.strip(),
-        response.citations,
-    )
-    suggestions = _suggest_next_prompts(payload.message.strip(), response, projected_agenda)
-    metadata = {
-        "retrieval_mode": response.retrieval_mode,
-        "confidence": response.confidence,
-        "provider": response.provider,
-        "needs_review": response.needs_review,
-        "used_methods": response.used_methods,
-        "citation_count": len(response.citations),
-        "retrieved_chunk_count": len(response.retrieved_chunks),
-        "wikipedia_count": sum(1 for chunk in response.retrieved_chunks if chunk.source_type == "wikipedia"),
-        "guardrails": _model_dump(response.guardrails),
-        "checkpoints": [_model_dump(checkpoint) for checkpoint in response.checkpoints],
-        "pipeline": [_model_dump(step) for step in response.pipeline],
-    }
+    response, projected_agenda, suggestions, metadata = _generate_chat_turn(payload, active_session)
     session, saved = chat_history_service.append_turn(
         session_id=payload.session_id,
         session_name=payload.session_name,
@@ -3800,8 +4482,11 @@ def chat_completion(payload: ChatRequest) -> ChatResponse:
     )
     response.session_id = session["session_id"]
     response.session_name = session["session_name"]
-    response.history = _session_view(session).history
+    session_view = _session_view(session)
+    response.history = session_view.history
+    response.messages = session_view.messages
     response.agenda_summary = session.get("user_agenda", projected_agenda)
+    response.memory_summary = session.get("memory_summary", "")
     response.suggestions = suggestions
     response.chat_saved = saved
     return response

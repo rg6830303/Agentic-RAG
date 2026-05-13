@@ -12,7 +12,10 @@ from fastapi import FastAPI
 from app import app as root_app
 from api.index import (
     ChatRequest,
+    ChatMessageEditRequest,
+    ChatRegenerateRequest,
     EvaluationRequest,
+    append_chat_message,
     capabilities_info,
     chat_completion,
     chat_history,
@@ -20,8 +23,10 @@ from api.index import (
     clone_chat_session,
     corpus_info,
     evaluate,
+    edit_chat_message,
     health_check,
     read_root,
+    regenerate_chat_response,
     runtime_info,
 )
 
@@ -39,6 +44,8 @@ class VercelApiTests(unittest.TestCase):
         self.assertIn(b"drawerToggle", root.body)
         self.assertIn(b"composerOptions", root.body)
         self.assertIn(b"responsive-table", root.body)
+        self.assertIn(b"Regenerate", root.body)
+        self.assertIn(b"Save & regenerate", root.body)
         self.assertEqual(health_check()["status"], "ok")
 
     def test_corpus_is_available_to_vercel_api(self) -> None:
@@ -111,6 +118,56 @@ class VercelApiTests(unittest.TestCase):
                 cloned = clone_chat_session(first.session_id or "")
                 self.assertNotEqual(cloned.session_id, first.session_id)
                 self.assertEqual(len(cloned.history), 2)
+            finally:
+                app_module.chat_history_service = original_service
+
+    def test_threads_continue_edit_and_regenerate(self) -> None:
+        original_service = app_module.chat_history_service
+        with tempfile.TemporaryDirectory() as tmpdir:
+            app_module.chat_history_service = app_module.ChatHistoryService(Path(tmpdir))
+            try:
+                with patch.dict(os.environ, {}, clear=True):
+                    first = chat_completion(
+                        ChatRequest(
+                            message="Explain RAG simply.",
+                            use_wikipedia=False,
+                        )
+                    )
+                    second = append_chat_message(
+                        first.session_id or "",
+                        ChatRequest(
+                            message="Now explain how my project uses this.",
+                            use_wikipedia=False,
+                        ),
+                    )
+
+                    self.assertEqual(second.session_id, first.session_id)
+                    self.assertEqual(len(second.history), 2)
+                    self.assertEqual(len(second.messages), 4)
+                    self.assertEqual(second.history[0].user_prompt, "Explain RAG simply.")
+                    self.assertEqual(second.history[1].user_prompt, "Now explain how my project uses this.")
+
+                    edited = edit_chat_message(
+                        second.session_id or "",
+                        second.history[0].user_message_id,
+                        ChatMessageEditRequest(
+                            message="Explain vector retrieval simply.",
+                            use_wikipedia=False,
+                        ),
+                    )
+                    self.assertEqual(len(edited.history), 1)
+                    self.assertEqual(len(edited.messages), 2)
+                    self.assertTrue(edited.history[0].edited)
+                    self.assertEqual(edited.history[0].user_prompt, "Explain vector retrieval simply.")
+
+                    assistant_before = edited.history[0].assistant_message_id
+                    regenerated = regenerate_chat_response(
+                        edited.session_id,
+                        ChatRegenerateRequest(use_wikipedia=False),
+                    )
+                    self.assertEqual(len(regenerated.history), 1)
+                    self.assertEqual(regenerated.history[0].user_prompt, "Explain vector retrieval simply.")
+                    self.assertNotEqual(regenerated.history[0].assistant_message_id, assistant_before)
             finally:
                 app_module.chat_history_service = original_service
 

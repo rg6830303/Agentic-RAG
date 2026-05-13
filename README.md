@@ -7,7 +7,7 @@ This repository is a Vercel-native FastAPI application with a built-in dark blue
 - Vercel-ready FastAPI app at `app.py`
 - Stitch-inspired production dark blue browser chat UI served from `/`
 - Enter-to-send prompt composer; use Shift+Enter for multiline prompts
-- Saved chat sidebar with new chat, resume, clone, agenda, suggestions, and local browser fallback
+- Multi-turn saved chat threads with new chat, resume, clone, edit prompt, regenerate, agenda, suggestions, and local browser fallback
 - RAG API at `/api/chat` and `/api/query`
 - Generation graph showing ingestion, chunking, indexing, retrieval, Self-RAG, generation, guardrails, and HITL
 - HITL checkpoint cards for context review and final answer approval
@@ -27,6 +27,9 @@ This repository is a Vercel-native FastAPI application with a built-in dark blue
 - Duplicate sends are blocked while retrieval/generation is running.
 - Loading feedback shows a retrieval/generation state while the RAG pipeline runs.
 - Empty state prompt chips help start common workflows such as summarizing the corpus, comparing retrieved sources, or asking for Wikipedia-backed context.
+- A single chat thread can contain many user prompts and assistant answers. Sending a follow-up appends to the active thread; it does not require creating a new chat.
+- User prompts have an Edit action. Saving an edit creates a clean branch by removing later turns and regenerating the assistant answer for the edited prompt.
+- The latest assistant answer has a Regenerate action that replaces that answer while preserving the thread structure.
 
 ## Mobile UX
 
@@ -55,11 +58,14 @@ Chat sessions are saved automatically after each answer. Each session stores:
 - `session_id`
 - title/session name
 - created and updated timestamps
-- prompt/answer history
+- ordered prompt/answer history plus normalized message IDs for user and assistant messages
 - citations and source snippets when available
 - retrieval metadata such as provider, retrieval mode, confidence, and source counts
+- a thread-specific agenda and compact memory summary
 
-The UI loads saved sessions in the left sidebar and can resume or clone an older chat. The backend stores history under `data/chat_history/` for local runs. On Vercel/serverless deployments, filesystem writes may be ephemeral, so the browser UI also keeps a best-effort `localStorage` cache for that browser. This is not a multi-user durable database.
+The UI loads saved sessions in the left sidebar and can resume or clone an older chat. Opening an old thread restores the full transcript and follow-up prompts append to that same thread. Thread memory is built from the agenda, compact older-summary, and recent turns, and is sent only for that active thread so separate chats do not mix context.
+
+The backend stores history under `data/chat_history/` for local runs. On Vercel/serverless deployments, filesystem writes may be ephemeral, so the browser UI also keeps a best-effort `localStorage` cache for that browser. This is not a multi-user durable database.
 
 ## Wikipedia Text Retrieval
 
@@ -107,6 +113,9 @@ Without those values, the app still answers with local extractive RAG over the d
 - `/api/chat/history/{session_id}/clone` clones an existing saved chat.
 - `/api/chats` provides compatibility aliases for listing and creating sessions.
 - `/api/chats/{session_id}` provides compatibility aliases for retrieving, updating, or deleting sessions.
+- `/api/chats/{session_id}/messages` appends a prompt to an existing thread and returns the generated answer.
+- `/api/chats/{session_id}/messages/{message_id}` edits a user prompt, branches from that turn, and regenerates the answer.
+- `/api/chats/{session_id}/regenerate` regenerates the latest assistant response in a thread.
 - `/api/evaluate` runs the bundled golden-set evaluation.
 
 ## Local Smoke Run
