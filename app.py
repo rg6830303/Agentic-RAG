@@ -6,6 +6,7 @@ import math
 import os
 import platform
 import re
+import time
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -29,6 +30,12 @@ GOLDEN_EVAL_PATH = ROOT_DIR / "data" / "golden_eval" / "ncert_physics_golden.jso
 CHAT_HISTORY_DIR = ROOT_DIR / "data" / "chat_history"
 SUPPORTED_CORPUS_EXTENSIONS = {".csv", ".json", ".md", ".sql", ".txt"}
 SESSION_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_-]{8,80}$")
+WIKIPEDIA_API_URL = "https://en.wikipedia.org/w/api.php"
+WIKIPEDIA_USER_AGENT = "Agentic-RAG/0.3 (https://github.com/rg6830303/Agentic-RAG)"
+WIKIPEDIA_TIMEOUT_SECONDS = 4
+WIKIPEDIA_CACHE_TTL_SECONDS = 60 * 30
+WIKIPEDIA_CACHE: dict[str, tuple[float, Any]] = {}
+WIKIPEDIA_CACHE_LOCK = RLock()
 
 
 @dataclass(slots=True)
@@ -42,6 +49,9 @@ class CorpusChunk:
     strategy: str
     level: int = 0
     parent_chunk_id: str | None = None
+    source_type: str = "local"
+    source_url: str | None = None
+    page_title: str | None = None
 
 
 @dataclass(slots=True)
@@ -68,6 +78,9 @@ class Citation(BaseModel):
     chunking_method: str
     snippet: str
     sentence_attention: list[SentenceAttention] = Field(default_factory=list)
+    source_type: str = "local"
+    source_url: str | None = None
+    page_title: str | None = None
 
 
 class RetrievedChunk(BaseModel):
@@ -80,6 +93,9 @@ class RetrievedChunk(BaseModel):
     chunking_method: str
     text: str
     sentence_attention: list[SentenceAttention] = Field(default_factory=list)
+    source_type: str = "local"
+    source_url: str | None = None
+    page_title: str | None = None
 
 
 class GuardrailReport(BaseModel):
@@ -131,6 +147,7 @@ class ChatRequest(BaseModel):
     require_final_approval: bool = False
     sentence_attention: bool = True
     citation_display: bool = True
+    use_wikipedia: bool = True
     temperature: float = Field(default=0.1, ge=0.0, le=1.0)
     max_tokens: int = Field(default=700, ge=100, le=2_000)
 
@@ -164,6 +181,10 @@ class ChatSessionView(ChatSessionSummary):
 
 class ChatHistoryList(BaseModel):
     sessions: list[ChatSessionSummary]
+
+
+class ChatSessionUpdate(BaseModel):
+    session_name: str | None = Field(default=None, max_length=120)
 
 
 class ChatResponse(BaseModel):
@@ -515,6 +536,34 @@ class ChatHistoryService:
             cloned, saved = self.create_session(seed=session)
             return cloned, saved
 
+    def update_session(
+        self,
+        session_id: str,
+        session_name: str | None = None,
+    ) -> tuple[dict[str, Any] | None, bool]:
+        with self._lock:
+            session = self._read_session(session_id)
+            if not session:
+                return None, False
+            if session_name:
+                session["session_name"] = _compact_text(session_name, 120)
+                session["updated_at"] = _utc_now_iso()
+            return self._normalize_session(session), self._write_session(session)
+
+    def delete_session(self, session_id: str) -> bool:
+        with self._lock:
+            try:
+                path = self._path_for(session_id)
+            except ValueError:
+                return False
+            if not path.exists():
+                return False
+            try:
+                path.unlink()
+            except OSError:
+                return False
+            return True
+
     def append_turn(
         self,
         session_id: str | None,
@@ -557,6 +606,9 @@ class ChatHistoryService:
                         "path": chunk.path,
                         "score": chunk.score,
                         "source": chunk.source,
+                        "source_type": chunk.source_type,
+                        "source_url": chunk.source_url,
+                        "page_title": chunk.page_title,
                         "snippet": _compact_text(chunk.text, 520),
                     }
                     for chunk in retrieved_chunks[:5]
@@ -860,6 +912,141 @@ def _search_corpus(
     ]
 
 
+def _cache_get(key: str) -> Any | None:
+    now = time.time()
+    with WIKIPEDIA_CACHE_LOCK:
+        cached = WIKIPEDIA_CACHE.get(key)
+        if not cached:
+            return None
+        created_at, value = cached
+        if now - created_at > WIKIPEDIA_CACHE_TTL_SECONDS:
+            WIKIPEDIA_CACHE.pop(key, None)
+            return None
+        return value
+
+
+def _cache_set(key: str, value: Any) -> Any:
+    with WIKIPEDIA_CACHE_LOCK:
+        WIKIPEDIA_CACHE[key] = (time.time(), value)
+    return value
+
+
+def _wikipedia_request(params: dict[str, Any]) -> dict[str, Any] | None:
+    cache_key = "wikipedia:" + json.dumps(params, sort_keys=True, ensure_ascii=True)
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
+    try:
+        response = requests.get(
+            WIKIPEDIA_API_URL,
+            params={**params, "format": "json", "formatversion": "2", "utf8": 1},
+            headers={"User-Agent": WIKIPEDIA_USER_AGENT},
+            timeout=WIKIPEDIA_TIMEOUT_SECONDS,
+        )
+    except requests.RequestException:
+        return None
+    if response.status_code >= 400:
+        return None
+    try:
+        return _cache_set(cache_key, response.json())
+    except ValueError:
+        return None
+
+
+def search_wikipedia(query: str, limit: int = 3) -> list[dict[str, Any]]:
+    terms = _tokenize(query)
+    if len(terms) < 2:
+        return []
+    payload = _wikipedia_request(
+        {
+            "action": "query",
+            "list": "search",
+            "srsearch": query[:500],
+            "srlimit": max(1, min(limit, 5)),
+            "srprop": "snippet|titlesnippet|size",
+        }
+    )
+    if not payload:
+        return []
+    return list(payload.get("query", {}).get("search", []) or [])
+
+
+def fetch_wikipedia_page_extract(title: str) -> dict[str, Any] | None:
+    payload = _wikipedia_request(
+        {
+            "action": "query",
+            "prop": "extracts|info",
+            "titles": title,
+            "redirects": 1,
+            "explaintext": 1,
+            "exsectionformat": "plain",
+            "exchars": 5200,
+            "inprop": "url",
+        }
+    )
+    pages = (payload or {}).get("query", {}).get("pages", [])
+    if not pages:
+        return None
+    page = pages[0]
+    if page.get("missing"):
+        return None
+    extract = re.sub(r"\s+", " ", str(page.get("extract") or "")).strip()
+    if not extract:
+        return None
+    return {
+        "page_id": str(page.get("pageid") or title),
+        "title": str(page.get("title") or title),
+        "extract": extract,
+        "source_url": str(page.get("fullurl") or f"https://en.wikipedia.org/wiki/{title.replace(' ', '_')}"),
+    }
+
+
+def fetch_wikipedia_summary(title: str) -> dict[str, Any] | None:
+    return fetch_wikipedia_page_extract(title)
+
+
+def _wikipedia_score(query: str, text: str, result_rank: int, limit: int) -> float:
+    query_terms = set(_tokenize(query))
+    text_terms = set(_tokenize(text))
+    overlap = len(query_terms & text_terms) / max(len(query_terms), 1)
+    rank_boost = (max(limit - result_rank + 1, 1) / max(limit, 1)) * 0.45
+    return round(0.7 + rank_boost + overlap * 2.8, 4)
+
+
+def build_wikipedia_context(query: str, limit: int = 3) -> list[tuple[CorpusChunk, float, str]]:
+    if os.getenv("AGENTIC_RAG_DISABLE_WIKIPEDIA", "").strip().lower() in {"1", "true", "yes"}:
+        return []
+
+    hits: list[tuple[CorpusChunk, float, str]] = []
+    seen_titles: set[str] = set()
+    for result_rank, result in enumerate(search_wikipedia(query, limit=limit), start=1):
+        title = str(result.get("title") or "").strip()
+        if not title or title.lower() in seen_titles:
+            continue
+        seen_titles.add(title.lower())
+        page = fetch_wikipedia_page_extract(title)
+        if not page:
+            continue
+        extract = page["extract"]
+        for ordinal, chunk_text in enumerate(_split_text(extract, max_chars=1100, overlap=150)[:2]):
+            chunk = CorpusChunk(
+                chunk_id=f"wikipedia:{page['page_id']}:{ordinal}",
+                file_name=f"Wikipedia: {page['title']}",
+                relative_path=page["source_url"],
+                text=chunk_text,
+                ordinal=ordinal,
+                tokens=_tokenize(chunk_text),
+                strategy="wikipedia_extract",
+                source_type="wikipedia",
+                source_url=page["source_url"],
+                page_title=page["title"],
+            )
+            hits.append((chunk, _wikipedia_score(query, chunk_text, result_rank, limit), "wikipedia"))
+
+    hits.sort(key=lambda item: item[1], reverse=True)
+    return hits[:limit]
+
+
 def _sentences(text: str) -> list[str]:
     return [
         sentence.strip()
@@ -868,9 +1055,22 @@ def _sentences(text: str) -> list[str]:
     ]
 
 
+def _chunk_label(chunk: CorpusChunk) -> str:
+    if chunk.source_type == "wikipedia":
+        return chunk.page_title or chunk.file_name
+    return chunk.file_name
+
+
+def _source_reference(chunk: CorpusChunk) -> str:
+    label = _chunk_label(chunk)
+    if chunk.source_url:
+        return f"{label} ({chunk.source_url})"
+    return label
+
+
 def _extractive_answer(question: str, hits: list[tuple[CorpusChunk, float, str]]) -> str:
     if not hits:
-        return "I could not find enough matching evidence in the deployed corpus to answer this question."
+        return "I could not find enough matching evidence in the available knowledge sources to answer this question."
 
     selected: list[str] = []
     for chunk, _score, _source in hits[:5]:
@@ -882,8 +1082,16 @@ def _extractive_answer(question: str, hits: list[tuple[CorpusChunk, float, str]]
         selected = [hits[0][0].text[:300].strip()]
 
     body = " ".join(selected[:5]).strip()
-    sources = ", ".join(sorted({chunk.file_name for chunk, _score, _source in hits[:3]}))
-    return f"{body}\n\nGrounded sources: {sources}."
+    source_lines = [
+        f"- [{rank}] {_source_reference(chunk)}"
+        for rank, (chunk, _score, _source) in enumerate(hits[:5], start=1)
+    ]
+    wikipedia_note = (
+        "\n\nThis answer includes text retrieved from Wikipedia alongside the bundled corpus."
+        if any(chunk.source_type == "wikipedia" for chunk, _score, _source in hits[:5])
+        else ""
+    )
+    return f"{body}{wikipedia_note}\n\nSources:\n" + "\n".join(source_lines)
 
 
 def _context_prompt(hits: list[tuple[CorpusChunk, float, str]]) -> str:
@@ -895,6 +1103,8 @@ def _context_prompt(hits: list[tuple[CorpusChunk, float, str]]) -> str:
                     f"[{rank}] {chunk.relative_path}",
                     f"score={score:.3f}",
                     f"method={source}",
+                    f"source_type={chunk.source_type}",
+                    f"source_url={chunk.source_url or ''}",
                     chunk.text,
                 ]
             )
@@ -919,7 +1129,8 @@ def _generate_answer(
                 "content": (
                     "You are the final answer stage in an agentic RAG pipeline. "
                     "Use only the provided context, synthesize a direct final answer, "
-                    "include bracket citations like [1], and say when evidence is insufficient."
+                    "include bracket citations like [1], cite Wikipedia URLs only when provided "
+                    "in context, and say when evidence is insufficient."
                 ),
             },
             {
@@ -1014,6 +1225,9 @@ def _citation(
         chunking_method=chunk.strategy,
         snippet=html.unescape(chunk.text[:700].strip()),
         sentence_attention=_sentence_attention(question, chunk.text) if sentence_attention else [],
+        source_type=chunk.source_type,
+        source_url=chunk.source_url,
+        page_title=chunk.page_title,
     )
 
 
@@ -1035,6 +1249,9 @@ def _retrieved_chunk(
         chunking_method=chunk.strategy,
         text=chunk.text,
         sentence_attention=_sentence_attention(question, chunk.text) if sentence_attention else [],
+        source_type=chunk.source_type,
+        source_url=chunk.source_url,
+        page_title=chunk.page_title,
     )
 
 
@@ -1090,7 +1307,7 @@ def _make_checkpoints(
             status="pending" if payload.require_context_review else "auto_approved",
             requires_human=payload.require_context_review,
             summary="Retrieved context is ready for human review before generation.",
-            payload={"retrieved_count": len(hits), "top_sources": [chunk.file_name for chunk, _score, _source in hits[:5]]},
+            payload={"retrieved_count": len(hits), "top_sources": [_chunk_label(chunk) for chunk, _score, _source in hits[:5]]},
         ),
         CheckpointView(
             checkpoint_id="cp-final",
@@ -1111,13 +1328,14 @@ def _pipeline(
     reflection: str,
     second_pass_used: bool,
 ) -> list[PipelineStep]:
+    wikipedia_count = sum(1 for chunk, _score, _source in hits if chunk.source_type == "wikipedia")
     return [
         PipelineStep(
             stage="ingestion",
             title="Load corpus",
             status="complete",
-            summary="Read bundled source files and normalize content.",
-            metrics={"sources": _corpus_summary()["source_count"]},
+            summary="Read bundled source files and optional Wikipedia text context.",
+            metrics={"sources": _corpus_summary()["source_count"], "wikipedia_chunks": wikipedia_count},
         ),
         PipelineStep(
             stage="chunking",
@@ -1137,8 +1355,8 @@ def _pipeline(
             stage="retrieval",
             title="Retrieve",
             status="complete" if hits else "needs_review",
-            summary="Ranked context selected for answer generation.",
-            metrics={"retrieved": len(hits), "top_score": round(hits[0][1], 4) if hits else 0.0},
+            summary="Ranked local and Wikipedia context selected for answer generation.",
+            metrics={"retrieved": len(hits), "wikipedia": wikipedia_count, "top_score": round(hits[0][1], 4) if hits else 0.0},
         ),
         PipelineStep(
             stage="self_rag",
@@ -1203,6 +1421,14 @@ def _answer_pipeline(payload: ChatRequest) -> ChatResponse:
         hits.extend([item for item in expanded_hits if item[0].chunk_id not in seen])
         hits.sort(key=lambda item: item[1], reverse=True)
         hits = hits[: payload.top_k]
+
+    wikipedia_hits = build_wikipedia_context(retrieval_query, limit=min(3, max(1, payload.top_k))) if payload.use_wikipedia else []
+    if wikipedia_hits:
+        seen_ids = {chunk.chunk_id for chunk, _score, _source in hits}
+        hits.extend([item for item in wikipedia_hits if item[0].chunk_id not in seen_ids])
+        hits.sort(key=lambda item: item[1], reverse=True)
+        hits = hits[: max(payload.top_k, min(5, len(hits)))]
+        reflection = f"{reflection} Wikipedia text retrieval added {len(wikipedia_hits)} cited context chunk(s)."
 
     draft_answer = _extractive_answer(retrieval_query, hits)
     if payload.use_generation and _azure_status()["chat_configured"] and hits:
@@ -1272,14 +1498,18 @@ def _corpus_summary() -> dict[str, Any]:
             "bm25": bool(index.postings),
             "semantic_overlap": bool(index.chunks),
             "hybrid": bool(index.chunks),
+            "wikipedia_text": True,
             "faiss": False,
+        },
+        "external_sources": {
+            "wikipedia": "enabled by default with graceful timeout fallback",
         },
     }
 
 
 def _capabilities() -> dict[str, Any]:
     return {
-        "retrieval": ["bm25", "hybrid", "hierarchical"],
+        "retrieval": ["bm25", "hybrid", "hierarchical", "wikipedia_text"],
         "chunking": ["fixed", "semantic", "recursive", "adaptive", "hierarchical", "auto"],
         "agentic": ["query planning", "reranking", "self-rag reflection", "guardrails"],
         "hitl": [
@@ -1291,7 +1521,7 @@ def _capabilities() -> dict[str, Any]:
             "pre-index-rebuild",
         ],
         "evaluation": ["token_f1", "context_recall", "citation_hit_rate", "confidence"],
-        "serverless_note": "Uploads and destructive persistence are represented as guarded UI workflows over the deployed corpus.",
+        "serverless_note": "Chat history is stored in local files plus a browser localStorage fallback; Vercel filesystem persistence may be ephemeral.",
     }
 
 
@@ -1328,6 +1558,7 @@ def _run_evaluation(payload: EvaluationRequest) -> EvaluationResponse:
                 use_reranking=payload.use_reranking,
                 self_rag=payload.self_rag,
                 checkpoints_enabled=False,
+                use_wikipedia=False,
             )
         )
         citation_files = {citation.file_name for citation in response.citations}
@@ -1379,7 +1610,11 @@ APP_HTML = """<!doctype html>
       --amber: #fbbf24;
       --rose: #fb7185;
       --green: #22c55e;
+      --radius: 12px;
+      --radius-sm: 8px;
+      --space: 16px;
       --shadow: 0 22px 70px rgba(0, 0, 0, 0.34);
+      --shadow-soft: 0 10px 30px rgba(0, 0, 0, 0.22);
     }
     * { box-sizing: border-box; }
     body {
@@ -1394,15 +1629,17 @@ APP_HTML = """<!doctype html>
     }
     button, input, select, textarea { font: inherit; }
     h1, h2, h3, p { margin: 0; }
+    a { color: #7dd3fc; text-decoration: none; }
+    a:hover { text-decoration: underline; }
     .shell {
       min-height: 100vh;
       display: grid;
-      grid-template-columns: 310px minmax(0, 1fr);
+      grid-template-columns: 320px minmax(0, 1fr);
     }
     aside {
-      padding: 24px;
+      padding: 22px;
       border-right: 1px solid var(--line-soft);
-      background: rgba(5, 15, 31, 0.78);
+      background: linear-gradient(180deg, rgba(5, 15, 31, 0.96), rgba(7, 20, 39, 0.92));
       position: sticky;
       top: 0;
       height: 100vh;
@@ -1413,9 +1650,43 @@ APP_HTML = """<!doctype html>
       display: grid;
       gap: 18px;
     }
-    .brand { display: grid; gap: 10px; margin-bottom: 22px; }
-    .brand h1 { font-size: 28px; line-height: 1.08; }
+    .brand { display: grid; gap: 10px; margin-bottom: 18px; }
+    .brand h1 { font-size: 30px; line-height: 1.08; }
     .brand p { color: var(--muted); line-height: 1.45; }
+    .brand-mark {
+      width: 42px;
+      height: 42px;
+      display: grid;
+      place-items: center;
+      border-radius: 12px;
+      color: #04111f;
+      background: linear-gradient(135deg, var(--cyan), var(--teal));
+      font-weight: 900;
+      letter-spacing: 0;
+      box-shadow: 0 10px 24px rgba(56, 189, 248, 0.24);
+    }
+    .sidebar-section {
+      border-top: 1px solid var(--line-soft);
+      padding-top: 16px;
+      margin-top: 18px;
+      display: grid;
+      gap: 12px;
+    }
+    .sidebar-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 900;
+      text-transform: uppercase;
+      letter-spacing: 0;
+    }
+    .new-chat-button {
+      width: 100%;
+      justify-content: center;
+      margin: 4px 0 2px;
+    }
     .tabs { display: grid; gap: 8px; margin: 20px 0; }
     .tab {
       border: 1px solid transparent;
@@ -1453,8 +1724,8 @@ APP_HTML = """<!doctype html>
     .metric span { display: block; margin-top: 4px; color: var(--muted); font-size: 12px; }
     .panel {
       border: 1px solid var(--line-soft);
-      border-radius: 8px;
-      background: rgba(16, 36, 63, 0.86);
+      border-radius: var(--radius);
+      background: linear-gradient(180deg, rgba(16, 36, 63, 0.9), rgba(9, 26, 49, 0.84));
       box-shadow: var(--shadow);
     }
     .panel.pad { padding: 20px; }
@@ -1468,11 +1739,11 @@ APP_HTML = """<!doctype html>
     }
     .chat-grid {
       display: grid;
-      grid-template-columns: minmax(250px, 0.65fr) minmax(430px, 1.35fr) minmax(310px, 0.9fr);
+      grid-template-columns: minmax(520px, 1.4fr) minmax(300px, 0.72fr);
       gap: 18px;
       align-items: start;
     }
-    .history-panel, .insight-stack {
+    .insight-stack {
       position: sticky;
       top: 24px;
       max-height: calc(100vh - 48px);
@@ -1504,7 +1775,7 @@ APP_HTML = """<!doctype html>
       width: 100%;
       text-align: left;
       border: 1px solid var(--line-soft);
-      border-radius: 8px;
+      border-radius: var(--radius-sm);
       padding: 12px;
       background: rgba(8, 23, 42, 0.62);
       color: var(--soft);
@@ -1523,7 +1794,7 @@ APP_HTML = """<!doctype html>
     .session-card strong {
       display: block;
       margin-bottom: 6px;
-      font-size: 13px;
+      font-size: 13.5px;
       line-height: 1.35;
     }
     .session-card span {
@@ -1544,7 +1815,7 @@ APP_HTML = """<!doctype html>
       gap: 14px;
       align-items: start;
       border-bottom: 1px solid var(--line-soft);
-      padding-bottom: 13px;
+      padding-bottom: 16px;
     }
     .eyebrow {
       color: var(--cyan);
@@ -1563,7 +1834,7 @@ APP_HTML = """<!doctype html>
       gap: 14px;
       align-content: start;
       overflow: auto;
-      padding: 6px 6px 8px 0;
+      padding: 8px 8px 10px 0;
       scroll-behavior: smooth;
     }
     .message-row {
@@ -1576,7 +1847,7 @@ APP_HTML = """<!doctype html>
     .message {
       max-width: min(760px, 88%);
       border: 1px solid var(--line-soft);
-      border-radius: 10px;
+      border-radius: 14px;
       padding: 14px 16px;
       line-height: 1.7;
       white-space: pre-wrap;
@@ -1587,13 +1858,13 @@ APP_HTML = """<!doctype html>
       background: linear-gradient(135deg, rgba(56, 189, 248, 0.18), rgba(45, 212, 191, 0.12));
       border-color: rgba(56, 189, 248, 0.52);
       color: var(--ink);
-      box-shadow: 0 2px 8px rgba(56, 189, 248, 0.1);
+      box-shadow: var(--shadow-soft);
     }
     .message-row.assistant .message {
       background: linear-gradient(135deg, rgba(16, 36, 63, 0.8), rgba(10, 27, 49, 0.7));
       border-color: rgba(56, 189, 248, 0.3);
       color: var(--soft);
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+      box-shadow: var(--shadow-soft);
     }
     .message-row.assistant.loading .message {
       border-color: rgba(45, 212, 191, 0.48);
@@ -1851,6 +2122,46 @@ APP_HTML = """<!doctype html>
       overflow-wrap: anywhere;
     }
     .empty { color: var(--muted); line-height: 1.6; }
+    .empty-state {
+      align-self: center;
+      justify-self: center;
+      width: min(720px, 100%);
+      border: 1px solid var(--line-soft);
+      border-radius: var(--radius);
+      padding: 22px;
+      background: rgba(7, 20, 39, 0.55);
+      box-shadow: var(--shadow-soft);
+    }
+    .empty-state h3 {
+      font-size: 22px;
+      margin-bottom: 8px;
+    }
+    .empty-state p {
+      color: var(--muted);
+      line-height: 1.65;
+      margin-bottom: 16px;
+    }
+    .empty-prompts {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    .empty-prompt {
+      text-align: left;
+      border: 1px solid var(--line-soft);
+      border-radius: var(--radius-sm);
+      padding: 12px;
+      color: var(--soft);
+      background: rgba(9, 26, 49, 0.82);
+      cursor: pointer;
+      line-height: 1.45;
+      transition: all 0.15s ease;
+    }
+    .empty-prompt:hover {
+      border-color: rgba(56, 189, 248, 0.55);
+      background: rgba(16, 36, 63, 0.92);
+      transform: translateY(-1px);
+    }
     @keyframes messageIn {
       from { opacity: 0; transform: translateY(6px); }
       to { opacity: 1; transform: translateY(0); }
@@ -1866,7 +2177,7 @@ APP_HTML = """<!doctype html>
       .shell { grid-template-columns: 1fr; }
       aside { height: auto; position: relative; border-right: 0; border-bottom: 1px solid var(--line-soft); }
       .workspace, .chat-grid, .subgrid { grid-template-columns: 1fr; }
-      .history-panel, .insight-stack { position: relative; top: auto; max-height: none; }
+      .insight-stack { position: relative; top: auto; max-height: none; }
       .conversation-panel { min-height: auto; }
       .flow { grid-template-columns: 1fr 1fr; }
     }
@@ -1883,8 +2194,19 @@ APP_HTML = """<!doctype html>
   <div class="shell">
     <aside>
       <section class="brand">
-        <h1>Advanced Agentic RAG</h1>
-        <p>Full workflow console for retrieval, generation, checkpoints, guardrails, source inspection, and evaluation.</p>
+        <div class="brand-mark">AR</div>
+        <h1>Agentic RAG</h1>
+        <p>Production-style AI chat over local corpus files and Wikipedia text retrieval.</p>
+      </section>
+      <button class="primary new-chat-button" id="newSessionButton" type="button">New Chat</button>
+      <section class="sidebar-section">
+        <div class="sidebar-title">
+          <span>Saved Chats</span>
+          <button class="icon-button" id="cloneSessionButton" type="button" title="Clone active chat">Clone</button>
+        </div>
+        <div id="sessionList" class="session-list">
+          <p class="empty">No saved sessions yet.</p>
+        </div>
       </section>
       <nav class="tabs">
         <button class="tab active" data-tab="chat">RAG Chat</button>
@@ -1906,19 +2228,6 @@ APP_HTML = """<!doctype html>
     <main>
       <section id="chat" class="section active">
         <div class="chat-grid">
-          <section class="panel pad history-panel">
-            <div class="panel-heading">
-              <h2>Chat History</h2>
-              <div class="actions">
-                <button class="icon-button" id="newSessionButton" type="button" title="New session">+</button>
-                <button class="icon-button" id="cloneSessionButton" type="button" title="Clone session">Clone</button>
-              </div>
-            </div>
-            <div id="sessionList" class="session-list">
-              <p class="empty">No saved sessions yet.</p>
-            </div>
-          </section>
-
           <section class="panel pad conversation-panel">
             <div class="conversation-head">
               <div>
@@ -1928,7 +2237,16 @@ APP_HTML = """<!doctype html>
               <div class="badge-row" id="badges"><span class="badge">Ready</span></div>
             </div>
             <div id="messages" class="message-list">
-              <p class="empty">Ask a question to start a persistent RAG conversation.</p>
+              <section class="empty-state">
+                <h3>Ask your knowledge base anything</h3>
+                <p>Use the bundled corpus, optional Wikipedia text retrieval, citations, guardrails, and session memory in one workspace.</p>
+                <div class="empty-prompts">
+                  <button class="empty-prompt" type="button">Ask about the uploaded knowledge base</button>
+                  <button class="empty-prompt" type="button">Summarize the corpus</button>
+                  <button class="empty-prompt" type="button">Compare retrieved sources</button>
+                  <button class="empty-prompt" type="button">Search Wikipedia-backed knowledge</button>
+                </div>
+              </section>
             </div>
             <form class="composer" id="askForm">
               <label>
@@ -1951,6 +2269,7 @@ APP_HTML = """<!doctype html>
                 <label class="switch"><input id="useGeneration" type="checkbox" checked> Model synthesis</label>
                 <label class="switch"><input id="useReranking" type="checkbox" checked> Reranking</label>
                 <label class="switch"><input id="selfRag" type="checkbox" checked> Self-RAG</label>
+                <label class="switch"><input id="useWikipedia" type="checkbox" checked> Wikipedia text</label>
                 <label class="switch"><input id="sentenceAttention" type="checkbox" checked> Sentence attention</label>
                 <label class="switch"><input id="contextReview" type="checkbox"> HITL context review</label>
                 <label class="switch"><input id="finalApproval" type="checkbox"> HITL final approval</label>
@@ -2065,6 +2384,7 @@ APP_HTML = """<!doctype html>
       activeSession: null,
       isGenerating: false
     };
+    const LOCAL_CHAT_KEY = "agentic_rag_chats_v1";
     const $ = (selector) => document.querySelector(selector);
     const $$ = (selector) => Array.from(document.querySelectorAll(selector));
     const escapeHtml = (value) => String(value)
@@ -2077,6 +2397,66 @@ APP_HTML = """<!doctype html>
     const badge = (text, kind = "") => `<span class="badge ${kind}">${escapeHtml(text)}</span>`;
     const empty = (text) => `<p class="empty">${escapeHtml(text)}</p>`;
 
+    function readLocalChats() {
+      try {
+        const payload = JSON.parse(localStorage.getItem(LOCAL_CHAT_KEY) || "[]");
+        return Array.isArray(payload) ? payload : [];
+      } catch (_error) {
+        return [];
+      }
+    }
+
+    function writeLocalChats(sessions) {
+      try {
+        localStorage.setItem(LOCAL_CHAT_KEY, JSON.stringify(sessions.slice(0, 40)));
+      } catch (_error) {
+        // Browser localStorage is a best-effort fallback for Vercel/serverless deployments.
+      }
+    }
+
+    function sessionSummary(session) {
+      const history = session.history || [];
+      const lastTurn = history.length ? history[history.length - 1] : {};
+      return {
+        session_id: session.session_id,
+        session_name: session.session_name || session.title || "RAG conversation",
+        user_agenda: session.user_agenda || session.agenda_summary || "",
+        created_at: session.created_at || new Date().toISOString(),
+        updated_at: session.updated_at || new Date().toISOString(),
+        exchange_count: session.exchange_count || history.length || 0,
+        last_prompt: session.last_prompt || lastTurn.user_prompt || "",
+        last_response: session.last_response || lastTurn.ai_response || "",
+        metadata: session.metadata || {}
+      };
+    }
+
+    function mergeSessions(primary, fallback) {
+      const map = new Map();
+      [...fallback, ...primary].forEach((session) => {
+        if (!session || !session.session_id) return;
+        const previous = map.get(session.session_id);
+        if (!previous || new Date(session.updated_at || 0) >= new Date(previous.updated_at || 0)) {
+          map.set(session.session_id, session);
+        }
+      });
+      return Array.from(map.values())
+        .sort((a, b) => new Date(b.updated_at || 0) - new Date(a.updated_at || 0));
+    }
+
+    function saveLocalSession(session) {
+      if (!session || !session.session_id) return;
+      const local = readLocalChats().filter((item) => item.session_id !== session.session_id);
+      const stored = {
+        ...sessionSummary(session),
+        history: session.history || []
+      };
+      writeLocalChats([stored, ...local]);
+    }
+
+    function findLocalSession(sessionId) {
+      return readLocalChats().find((session) => session.session_id === sessionId) || null;
+    }
+
     function formatDate(value) {
       if (!value) return "";
       const date = new Date(value);
@@ -2087,6 +2467,31 @@ APP_HTML = """<!doctype html>
         hour: "2-digit",
         minute: "2-digit"
       }).format(date);
+    }
+
+    function bindPromptButtons() {
+      $$(".empty-prompt, .suggestion-button").forEach((button) => {
+        button.addEventListener("click", () => {
+          $("#question").value = button.textContent.trim();
+          $("#question").focus();
+        });
+      });
+    }
+
+    function renderEmptyChat() {
+      $("#messages").innerHTML = `
+        <section class="empty-state">
+          <h3>Ask your knowledge base anything</h3>
+          <p>Start with the local corpus, ask for Wikipedia-backed context, or compare retrieved evidence with citations.</p>
+          <div class="empty-prompts">
+            <button class="empty-prompt" type="button">Ask about the uploaded knowledge base</button>
+            <button class="empty-prompt" type="button">Summarize the corpus</button>
+            <button class="empty-prompt" type="button">Compare retrieved sources</button>
+            <button class="empty-prompt" type="button">Search Wikipedia-backed knowledge</button>
+          </div>
+        </section>
+      `;
+      bindPromptButtons();
     }
 
     $$(".tab").forEach((button) => {
@@ -2107,6 +2512,7 @@ APP_HTML = """<!doctype html>
         use_generation: $("#useGeneration").checked,
         use_reranking: $("#useReranking").checked,
         self_rag: $("#selfRag").checked,
+        use_wikipedia: $("#useWikipedia").checked,
         checkpoints_enabled: true,
         require_context_review: $("#contextReview").checked,
         require_final_approval: $("#finalApproval").checked,
@@ -2201,6 +2607,13 @@ APP_HTML = """<!doctype html>
       $("#chunkCount").textContent = state.corpus.chunk_count;
       $("#modelState").textContent = state.runtime.azure_openai.chat_configured ? "Azure" : "Local";
       $("#indexState").textContent = state.corpus.indexes.hybrid ? "Hybrid" : "Lexical";
+      if (!state.last) {
+        $("#badges").innerHTML = [
+          badge(`${state.corpus.source_count} local sources`, "good"),
+          badge("Wikipedia text", "good"),
+          badge(state.runtime.azure_openai.chat_configured ? "Azure synthesis" : "Local extractive")
+        ].join("");
+      }
       renderSources();
       renderIndexDetails();
       await loadHistory();
@@ -2238,6 +2651,7 @@ APP_HTML = """<!doctype html>
         ["Ingestion", "Bundled corpus loading, file type detection, and guarded serverless-safe source intake."],
         ["Chunking", "Auto, fixed, semantic, recursive, adaptive, and hierarchical chunking are represented in the workflow."],
         ["Index Management", "BM25, semantic-overlap, hybrid, and reranked retrieval branches are visible in index status."],
+        ["Wikipedia Text", "MediaWiki API search and extract retrieval adds text-only external context with source URLs."],
         ["Docstore & Sources", "Source inspection shows complete documents plus generated chunks without exposing only snippets."],
         ["Chat & Retrieval", "Final answer, citations, retrieved chunks, and sentence attention are separated in the answer workspace."],
         ["Self-RAG", "Reflection can trigger expanded retrieval and is shown in the generation graph."],
@@ -2252,14 +2666,19 @@ APP_HTML = """<!doctype html>
     }
 
     async function loadHistory() {
+      const localSessions = readLocalChats().map(sessionSummary);
       try {
         const response = await fetch("/api/chat/history");
         const payload = await response.json();
         if (!response.ok) throw new Error(payload.detail || "Could not load history");
-        state.sessions = payload.sessions || [];
+        state.sessions = mergeSessions(payload.sessions || [], localSessions);
         renderSessionList();
       } catch (error) {
-        $("#sessionList").innerHTML = empty(error.message);
+        state.sessions = localSessions;
+        renderSessionList();
+        if (!state.sessions.length) {
+          $("#sessionList").innerHTML = empty(`${error.message}. Browser-saved chats will appear here.`);
+        }
       }
     }
 
@@ -2281,16 +2700,24 @@ APP_HTML = """<!doctype html>
     }
 
     async function loadSession(sessionId) {
-      const response = await fetch(`/api/chat/history/${encodeURIComponent(sessionId)}`);
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.detail || "Could not load session");
-      renderSession(payload);
+      try {
+        const response = await fetch(`/api/chat/history/${encodeURIComponent(sessionId)}`);
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.detail || "Could not load session");
+        renderSession(payload);
+        saveLocalSession(payload);
+      } catch (_error) {
+        const local = findLocalSession(sessionId);
+        if (!local) throw _error;
+        renderSession(local);
+      }
       renderSessionList();
     }
 
     function renderSession(session) {
       state.activeSession = session || null;
       state.activeSessionId = session ? session.session_id : null;
+      if (session) saveLocalSession(session);
       $("#currentSessionName").textContent = session ? session.session_name : "New RAG conversation";
       $("#agendaSummary").textContent = session && session.user_agenda
         ? session.user_agenda
@@ -2329,7 +2756,7 @@ APP_HTML = """<!doctype html>
 
     function renderSessionMessages(history) {
       if (!history.length) {
-        $("#messages").innerHTML = empty("Ask a question to start a persistent RAG conversation.");
+        renderEmptyChat();
         return;
       }
       $("#messages").innerHTML = history.map((turn) => {
@@ -2365,7 +2792,8 @@ APP_HTML = """<!doctype html>
         metadata.retrieval_mode ? badge(metadata.retrieval_mode) : "",
         typeof metadata.confidence === "number" ? badge(`confidence ${metadata.confidence}`, metadata.needs_review ? "warn" : "good") : "",
         metadata.citation_count !== undefined ? badge(`${metadata.citation_count} citations`) : "",
-        metadata.retrieved_chunk_count !== undefined ? badge(`${metadata.retrieved_chunk_count} chunks`) : ""
+        metadata.retrieved_chunk_count !== undefined ? badge(`${metadata.retrieved_chunk_count} chunks`) : "",
+        metadata.wikipedia_count ? badge(`${metadata.wikipedia_count} wiki`, "good") : ""
       ].join("");
     }
 
@@ -2377,12 +2805,7 @@ APP_HTML = """<!doctype html>
       $("#suggestions").innerHTML = suggestions.map((suggestion) => `
         <button class="suggestion-button" type="button">${escapeHtml(suggestion)}</button>
       `).join("");
-      $$("#suggestions .suggestion-button").forEach((button) => {
-        button.addEventListener("click", () => {
-          $("#question").value = button.textContent.trim();
-          $("#question").focus();
-        });
-      });
+      bindPromptButtons();
     }
 
     function renderChat(payload) {
@@ -2392,8 +2815,12 @@ APP_HTML = """<!doctype html>
         session_id: payload.session_id,
         session_name: payload.session_name || "RAG conversation",
         user_agenda: payload.agenda_summary || "",
+        created_at: payload.history && payload.history.length ? payload.history[0].timestamp : new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        exchange_count: payload.history ? payload.history.length : 0,
         history: payload.history || []
       };
+      saveLocalSession(state.activeSession);
       $("#currentSessionName").textContent = state.activeSession.session_name;
       $("#agendaSummary").textContent = payload.agenda_summary || "The session agenda will build from your prompts.";
       $("#agendaSummary").classList.toggle("empty", !payload.agenda_summary);
@@ -2405,7 +2832,8 @@ APP_HTML = """<!doctype html>
         confidence: payload.confidence,
         needs_review: payload.needs_review,
         citation_count: payload.citations.length,
-        retrieved_chunk_count: payload.retrieved_chunks.length
+        retrieved_chunk_count: payload.retrieved_chunks.length,
+        wikipedia_count: payload.retrieved_chunks.filter((chunk) => chunk.source_type === "wikipedia").length
       });
       $("#badges").innerHTML = [
         badge(payload.provider),
@@ -2418,8 +2846,9 @@ APP_HTML = """<!doctype html>
       renderSourceSnippets(payload.retrieved_chunks || []);
       $("#retrievedChunks").innerHTML = payload.retrieved_chunks.map((chunk) => `
         <article class="item">
-          <header><span>${chunk.rank}. ${escapeHtml(chunk.file_name)}</span><span>${escapeHtml(chunk.source)} | ${chunk.score}</span></header>
+          <header><span>${chunk.rank}. ${escapeHtml(chunk.page_title || chunk.file_name)}</span><span>${escapeHtml(chunk.source_type || "local")} | ${escapeHtml(chunk.source)} | ${chunk.score}</span></header>
           <p>${escapeHtml(chunk.text)}</p>
+          ${chunk.source_url ? `<p><a href="${escapeHtml(chunk.source_url)}" target="_blank" rel="noreferrer">${escapeHtml(chunk.source_url)}</a></p>` : ""}
         </article>
       `).join("") || empty("No retrieved chunks returned.");
       renderGuardrails(payload.guardrails);
@@ -2432,8 +2861,12 @@ APP_HTML = """<!doctype html>
     function renderCitations(citations) {
       $("#citations").innerHTML = citations.map((citation) => `
         <article class="item">
-          <header><span>${citation.rank}. ${escapeHtml(citation.file_name)}</span><span>${citation.score}</span></header>
+          <header>
+            <span>${citation.rank}. ${escapeHtml(citation.page_title || citation.file_name)}</span>
+            <span>${escapeHtml(citation.source_type || "local")} | ${citation.score}</span>
+          </header>
           <p>${escapeHtml(citation.snippet || "")}</p>
+          ${citation.source_url ? `<p><a href="${escapeHtml(citation.source_url)}" target="_blank" rel="noreferrer">${escapeHtml(citation.source_url)}</a></p>` : ""}
           <div class="attention">${(citation.sentence_attention || []).map((item) => `<div>${item.score}: ${escapeHtml(item.sentence)}</div>`).join("")}</div>
         </article>
       `).join("") || empty("No citations returned.");
@@ -2444,8 +2877,9 @@ APP_HTML = """<!doctype html>
         const text = item.snippet || item.text || "";
         return `
           <article class="item">
-            <header><span>${item.rank}. ${escapeHtml(item.file_name)}</span><span>${escapeHtml(item.source || item.path || "")}</span></header>
+            <header><span>${item.rank}. ${escapeHtml(item.page_title || item.file_name)}</span><span>${escapeHtml(item.source_type || item.source || item.path || "")}</span></header>
             <p class="source-snippet">${escapeHtml(text)}</p>
+            ${item.source_url ? `<p><a href="${escapeHtml(item.source_url)}" target="_blank" rel="noreferrer">${escapeHtml(item.source_url)}</a></p>` : ""}
           </article>
         `;
       }).join("") || empty("Source snippets appear after retrieval.");
@@ -2595,6 +3029,7 @@ APP_HTML = """<!doctype html>
     loadRuntime().catch((error) => {
       $("#badges").innerHTML = badge(error.message, "bad");
     });
+    bindPromptButtons();
   </script>
 </body>
 </html>
@@ -2619,6 +3054,7 @@ def api_info() -> dict[str, Any]:
         "capabilities": "/api/capabilities",
         "chat": "/api/chat",
         "chat_history": "/api/chat/history",
+        "chats": "/api/chats",
         "evaluate": "/api/evaluate",
     }
 
@@ -2700,6 +3136,42 @@ def clone_chat_session(session_id: str) -> ChatSessionView:
     return _session_view(session)
 
 
+@app.get("/api/chats", response_model=ChatHistoryList)
+def chats() -> ChatHistoryList:
+    return chat_history()
+
+
+@app.post("/api/chats", response_model=ChatSessionView)
+def create_chat(session_name: str | None = Query(default=None, max_length=120)) -> ChatSessionView:
+    session, saved = chat_history_service.create_session(session_name=session_name)
+    session.setdefault("metadata", {})["created"] = saved
+    return _session_view(session)
+
+
+@app.get("/api/chats/{session_id}", response_model=ChatSessionView)
+def get_chat(session_id: str) -> ChatSessionView:
+    return chat_session(session_id)
+
+
+@app.patch("/api/chats/{session_id}", response_model=ChatSessionView)
+def update_chat(session_id: str, payload: ChatSessionUpdate) -> ChatSessionView:
+    session, _saved = chat_history_service.update_session(
+        session_id,
+        session_name=payload.session_name,
+    )
+    if not session:
+        raise HTTPException(status_code=404, detail="Chat session not found.")
+    return _session_view(session)
+
+
+@app.delete("/api/chats/{session_id}")
+def delete_chat(session_id: str) -> dict[str, Any]:
+    deleted = chat_history_service.delete_session(session_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Chat session not found.")
+    return {"deleted": True, "session_id": session_id}
+
+
 @app.post("/api/chat", response_model=ChatResponse)
 def chat_completion(payload: ChatRequest) -> ChatResponse:
     active_session = (
@@ -2724,6 +3196,7 @@ def chat_completion(payload: ChatRequest) -> ChatResponse:
         "used_methods": response.used_methods,
         "citation_count": len(response.citations),
         "retrieved_chunk_count": len(response.retrieved_chunks),
+        "wikipedia_count": sum(1 for chunk in response.retrieved_chunks if chunk.source_type == "wikipedia"),
         "guardrails": _model_dump(response.guardrails),
         "checkpoints": [_model_dump(checkpoint) for checkpoint in response.checkpoints],
         "pipeline": [_model_dump(step) for step in response.pipeline],

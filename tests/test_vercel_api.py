@@ -44,6 +44,7 @@ class VercelApiTests(unittest.TestCase):
     def test_capabilities_are_exposed(self) -> None:
         capabilities = capabilities_info()
         self.assertIn("hybrid", capabilities["retrieval"])
+        self.assertIn("wikipedia_text", capabilities["retrieval"])
         self.assertIn("post-generation_pre-final-answer", capabilities["hitl"])
 
     def test_runtime_does_not_expose_secret_values(self) -> None:
@@ -64,7 +65,7 @@ class VercelApiTests(unittest.TestCase):
 
     def test_chat_uses_local_rag_without_azure_environment(self) -> None:
         with patch.dict(os.environ, {}, clear=True):
-            response = chat_completion(ChatRequest(message="How is resistance related to length?"))
+            response = chat_completion(ChatRequest(message="How is resistance related to length?", use_wikipedia=False))
 
         self.assertEqual(response.provider, "local_agentic_rag")
         self.assertTrue(response.finalized_answer)
@@ -79,11 +80,12 @@ class VercelApiTests(unittest.TestCase):
             app_module.chat_history_service = app_module.ChatHistoryService(Path(tmpdir))
             try:
                 with patch.dict(os.environ, {}, clear=True):
-                    first = chat_completion(ChatRequest(message="Help me study resistance and current."))
+                    first = chat_completion(ChatRequest(message="Help me study resistance and current.", use_wikipedia=False))
                     second = chat_completion(
                         ChatRequest(
                             message="What should I review next?",
                             session_id=first.session_id,
+                            use_wikipedia=False,
                         )
                     )
 
@@ -105,6 +107,72 @@ class VercelApiTests(unittest.TestCase):
                 self.assertEqual(len(cloned.history), 2)
             finally:
                 app_module.chat_history_service = original_service
+
+    def test_wikipedia_context_returns_url_backed_citations(self) -> None:
+        class FakeResponse:
+            def __init__(self, payload: dict[str, object]) -> None:
+                self.status_code = 200
+                self._payload = payload
+
+            def json(self) -> dict[str, object]:
+                return self._payload
+
+        def fake_get(_url: str, params: dict[str, object], **_kwargs: object) -> FakeResponse:
+            if params.get("list") == "search":
+                return FakeResponse(
+                    {
+                        "query": {
+                            "search": [
+                                {
+                                    "title": "Ada Lovelace",
+                                    "snippet": "English mathematician and writer",
+                                    "size": 100,
+                                }
+                            ]
+                        }
+                    }
+                )
+            return FakeResponse(
+                {
+                    "query": {
+                        "pages": [
+                            {
+                                "pageid": 974,
+                                "title": "Ada Lovelace",
+                                "extract": (
+                                    "Ada Lovelace was an English mathematician and writer. "
+                                    "She is chiefly known for her work on Charles Babbage's Analytical Engine."
+                                ),
+                                "fullurl": "https://en.wikipedia.org/wiki/Ada_Lovelace",
+                            }
+                        ]
+                    }
+                }
+            )
+
+        original_service = app_module.chat_history_service
+        app_module.WIKIPEDIA_CACHE.clear()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            app_module.chat_history_service = app_module.ChatHistoryService(Path(tmpdir))
+            try:
+                with patch.dict(os.environ, {}, clear=True), patch.object(app_module.requests, "get", side_effect=fake_get):
+                    response = chat_completion(
+                        ChatRequest(
+                            message="Who was Ada Lovelace?",
+                            use_generation=False,
+                            top_k=3,
+                        )
+                    )
+
+                wikipedia_citations = [
+                    citation for citation in response.citations if citation.source_type == "wikipedia"
+                ]
+                self.assertTrue(wikipedia_citations)
+                self.assertEqual(wikipedia_citations[0].source_url, "https://en.wikipedia.org/wiki/Ada_Lovelace")
+                self.assertIn("wikipedia", response.used_methods)
+            finally:
+                app_module.chat_history_service = original_service
+                app_module.WIKIPEDIA_CACHE.clear()
 
     def test_evaluation_endpoint_returns_rows(self) -> None:
         report = evaluate(EvaluationRequest())
