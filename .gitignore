@@ -24,6 +24,8 @@ htmlcov/
 
 # Generated project outputs
 artifacts/
+data/chat_history/*.json
+data/chat_history/*.tmp
 data/uploads/
 *.zip
 *.log

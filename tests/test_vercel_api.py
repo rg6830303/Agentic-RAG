@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import os
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
+import app as app_module
 from fastapi import FastAPI
 
 from app import app as root_app
@@ -12,6 +15,9 @@ from api.index import (
     EvaluationRequest,
     capabilities_info,
     chat_completion,
+    chat_history,
+    chat_session,
+    clone_chat_session,
     corpus_info,
     evaluate,
     health_check,
@@ -64,6 +70,39 @@ class VercelApiTests(unittest.TestCase):
         self.assertTrue(response.retrieved_chunks)
         self.assertTrue(response.pipeline)
         self.assertTrue(response.checkpoints)
+
+    def test_chat_history_persists_resume_and_clone(self) -> None:
+        original_service = app_module.chat_history_service
+        with tempfile.TemporaryDirectory() as tmpdir:
+            app_module.chat_history_service = app_module.ChatHistoryService(Path(tmpdir))
+            try:
+                with patch.dict(os.environ, {}, clear=True):
+                    first = chat_completion(ChatRequest(message="Help me study resistance and current."))
+                    second = chat_completion(
+                        ChatRequest(
+                            message="What should I review next?",
+                            session_id=first.session_id,
+                        )
+                    )
+
+                self.assertTrue(first.chat_saved)
+                self.assertTrue(first.session_id)
+                self.assertTrue(first.agenda_summary)
+                self.assertTrue(first.suggestions)
+                self.assertEqual(second.session_id, first.session_id)
+                self.assertEqual(len(second.history), 2)
+
+                listing = chat_history()
+                self.assertEqual(len(listing.sessions), 1)
+                loaded = chat_session(first.session_id or "")
+                self.assertEqual(loaded.exchange_count, 2)
+                self.assertEqual(loaded.history[0].user_prompt, "Help me study resistance and current.")
+
+                cloned = clone_chat_session(first.session_id or "")
+                self.assertNotEqual(cloned.session_id, first.session_id)
+                self.assertEqual(len(cloned.history), 2)
+            finally:
+                app_module.chat_history_service = original_service
 
     def test_evaluation_endpoint_returns_rows(self) -> None:
         report = evaluate(EvaluationRequest())
