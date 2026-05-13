@@ -1425,11 +1425,16 @@ APP_HTML = """<!doctype html>
       border-radius: 8px;
       padding: 11px 12px;
       cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .tab:hover {
+      color: var(--soft);
+      background: rgba(56, 189, 248, 0.06);
     }
     .tab.active {
       color: var(--ink);
-      background: rgba(56, 189, 248, 0.12);
-      border-color: var(--line);
+      background: rgba(56, 189, 248, 0.14);
+      border-color: var(--cyan);
     }
     .metric-grid {
       display: grid;
@@ -1452,7 +1457,7 @@ APP_HTML = """<!doctype html>
       background: rgba(16, 36, 63, 0.86);
       box-shadow: var(--shadow);
     }
-    .panel.pad { padding: 18px; }
+    .panel.pad { padding: 20px; }
     .section { display: none; }
     .section.active { display: grid; gap: 18px; }
     .workspace {
@@ -1500,14 +1505,20 @@ APP_HTML = """<!doctype html>
       text-align: left;
       border: 1px solid var(--line-soft);
       border-radius: 8px;
-      padding: 11px;
+      padding: 12px;
       background: rgba(8, 23, 42, 0.62);
       color: var(--soft);
       cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .session-card:hover:not(.active) {
+      border-color: rgba(56, 189, 248, 0.4);
+      background: rgba(8, 23, 42, 0.8);
     }
     .session-card.active {
-      border-color: rgba(56, 189, 248, 0.76);
-      background: rgba(56, 189, 248, 0.14);
+      border-color: rgba(56, 189, 248, 0.8);
+      background: rgba(56, 189, 248, 0.16);
+      box-shadow: 0 4px 12px rgba(56, 189, 248, 0.15);
     }
     .session-card strong {
       display: block;
@@ -1563,20 +1574,24 @@ APP_HTML = """<!doctype html>
     .message {
       max-width: min(760px, 88%);
       border: 1px solid var(--line-soft);
-      border-radius: 8px;
-      padding: 13px 14px;
-      line-height: 1.65;
+      border-radius: 10px;
+      padding: 14px 16px;
+      line-height: 1.7;
       white-space: pre-wrap;
       overflow-wrap: anywhere;
+      transition: all 0.15s ease;
     }
     .message-row.user .message {
-      background: rgba(56, 189, 248, 0.14);
-      border-color: rgba(56, 189, 248, 0.46);
+      background: linear-gradient(135deg, rgba(56, 189, 248, 0.18), rgba(45, 212, 191, 0.12));
+      border-color: rgba(56, 189, 248, 0.52);
       color: var(--ink);
+      box-shadow: 0 2px 8px rgba(56, 189, 248, 0.1);
     }
     .message-row.assistant .message {
-      background: rgba(7, 20, 39, 0.74);
+      background: linear-gradient(135deg, rgba(16, 36, 63, 0.8), rgba(10, 27, 49, 0.7));
+      border-color: rgba(56, 189, 248, 0.3);
       color: var(--soft);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
     }
     .message-meta {
       margin-top: 9px;
@@ -1586,11 +1601,11 @@ APP_HTML = """<!doctype html>
     }
     .composer {
       display: grid;
-      gap: 12px;
-      border-top: 1px solid var(--line-soft);
-      padding-top: 14px;
+      gap: 14px;
+      border-top: 2px solid var(--line);
+      padding-top: 16px;
     }
-    .composer textarea { min-height: 108px; }
+    .composer textarea { min-height: 120px; resize: vertical; }
     .insight-stack {
       display: grid;
       gap: 14px;
@@ -1605,11 +1620,20 @@ APP_HTML = """<!doctype html>
       text-align: left;
       border: 1px solid var(--line-soft);
       border-radius: 8px;
-      padding: 10px 11px;
+      padding: 11px 12px;
       color: var(--soft);
       background: rgba(9, 26, 49, 0.82);
       cursor: pointer;
-      line-height: 1.45;
+      line-height: 1.5;
+      transition: all 0.15s ease;
+    }
+    .suggestion-button:hover {
+      border-color: rgba(56, 189, 248, 0.5);
+      background: rgba(16, 36, 63, 0.9);
+      color: var(--cyan);
+    }
+    .suggestion-button:active {
+      transform: scale(0.98);
     }
     .source-snippet {
       color: var(--muted);
@@ -1625,11 +1649,14 @@ APP_HTML = """<!doctype html>
       border: 1px solid var(--line);
       border-radius: 8px;
       padding: 12px;
+      transition: all 0.15s ease;
     }
     textarea { width: 100%; min-height: 170px; resize: vertical; line-height: 1.55; }
     textarea:focus, input:focus, select:focus {
       outline: 3px solid rgba(56, 189, 248, 0.18);
       border-color: var(--cyan);
+      background: #0a2043;
+      box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.1);
     }
     .control-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
     .switch-row { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
@@ -1650,12 +1677,17 @@ APP_HTML = """<!doctype html>
       border-radius: 8px;
       border: 1px solid transparent;
       min-height: 42px;
-      padding: 11px 14px;
+      padding: 12px 16px;
       cursor: pointer;
       font-weight: 800;
+      transition: all 0.15s ease;
     }
     button.primary { color: #04111f; background: linear-gradient(135deg, var(--cyan), var(--teal)); }
+    button.primary:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 6px 16px rgba(56, 189, 248, 0.3); }
+    button.primary:active:not(:disabled) { transform: translateY(0); }
     button.secondary { color: var(--ink); background: #0a1b31; border-color: var(--line); }
+    button.secondary:hover:not(:disabled) { background: #0d2547; border-color: var(--cyan); }
+    button.secondary:active:not(:disabled) { background: #0a1f3a; }
     button:disabled { opacity: 0.62; cursor: wait; }
     .answer-card { display: grid; gap: 16px; }
     .answer {
@@ -2352,6 +2384,14 @@ APP_HTML = """<!doctype html>
         $("#badges").innerHTML = badge("error", "bad");
       } finally {
         $("#askButton").disabled = false;
+      }
+    });
+
+    // Enter key submits form, Shift+Enter creates new line
+    $("#question").addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && !event.shiftKey) {
+        event.preventDefault();
+        $("#askForm").dispatchEvent(new Event("submit"));
       }
     });
 
