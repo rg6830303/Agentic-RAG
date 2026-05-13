@@ -31,6 +31,8 @@ class VercelApiTests(unittest.TestCase):
         self.assertIsInstance(root_app, FastAPI)
         root = read_root()
         self.assertIn(b"Advanced Agentic RAG", root.body)
+        self.assertIn(b"requestSubmit", root.body)
+        self.assertIn(b"data-pending-response", root.body)
         self.assertEqual(health_check()["status"], "ok")
 
     def test_corpus_is_available_to_vercel_api(self) -> None:

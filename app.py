@@ -1563,11 +1563,13 @@ APP_HTML = """<!doctype html>
       gap: 14px;
       align-content: start;
       overflow: auto;
-      padding-right: 4px;
+      padding: 6px 6px 8px 0;
+      scroll-behavior: smooth;
     }
     .message-row {
       display: flex;
       width: 100%;
+      animation: messageIn 0.18s ease-out;
     }
     .message-row.user { justify-content: flex-end; }
     .message-row.assistant { justify-content: flex-start; }
@@ -1593,6 +1595,10 @@ APP_HTML = """<!doctype html>
       color: var(--soft);
       box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
     }
+    .message-row.assistant.loading .message {
+      border-color: rgba(45, 212, 191, 0.48);
+      background: linear-gradient(135deg, rgba(16, 48, 76, 0.88), rgba(8, 28, 52, 0.78));
+    }
     .message-meta {
       margin-top: 9px;
       display: flex;
@@ -1602,10 +1608,53 @@ APP_HTML = """<!doctype html>
     .composer {
       display: grid;
       gap: 14px;
-      border-top: 2px solid var(--line);
-      padding-top: 16px;
+      border: 1px solid var(--line-soft);
+      border-top: 2px solid rgba(56, 189, 248, 0.52);
+      border-radius: 12px;
+      padding: 14px;
+      background: linear-gradient(180deg, rgba(8, 23, 42, 0.78), rgba(5, 15, 31, 0.72));
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
     }
-    .composer textarea { min-height: 120px; resize: vertical; }
+    .composer.loading {
+      border-color: rgba(45, 212, 191, 0.55);
+      box-shadow: 0 0 0 3px rgba(45, 212, 191, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    }
+    .composer textarea {
+      min-height: 118px;
+      resize: vertical;
+      border-radius: 10px;
+      font-size: 15px;
+    }
+    .composer textarea::placeholder { color: #7896b5; }
+    .composer-status {
+      min-height: 42px;
+      display: inline-flex;
+      align-items: center;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.4;
+    }
+    .loading-copy {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--muted);
+    }
+    .typing-indicator {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      min-width: 28px;
+    }
+    .typing-indicator span {
+      width: 6px;
+      height: 6px;
+      border-radius: 999px;
+      background: var(--cyan);
+      animation: typingPulse 1s infinite ease-in-out;
+    }
+    .typing-indicator span:nth-child(2) { animation-delay: 0.14s; }
+    .typing-indicator span:nth-child(3) { animation-delay: 0.28s; }
     .insight-stack {
       display: grid;
       gap: 14px;
@@ -1685,6 +1734,18 @@ APP_HTML = """<!doctype html>
     button.primary { color: #04111f; background: linear-gradient(135deg, var(--cyan), var(--teal)); }
     button.primary:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 6px 16px rgba(56, 189, 248, 0.3); }
     button.primary:active:not(:disabled) { transform: translateY(0); }
+    button.primary.loading:before {
+      content: "";
+      width: 12px;
+      height: 12px;
+      margin-right: 8px;
+      display: inline-block;
+      border: 2px solid rgba(4, 17, 31, 0.36);
+      border-top-color: #04111f;
+      border-radius: 999px;
+      animation: spin 0.72s linear infinite;
+      vertical-align: -2px;
+    }
     button.secondary { color: var(--ink); background: #0a1b31; border-color: var(--line); }
     button.secondary:hover:not(:disabled) { background: #0d2547; border-color: var(--cyan); }
     button.secondary:active:not(:disabled) { background: #0a1f3a; }
@@ -1790,6 +1851,17 @@ APP_HTML = """<!doctype html>
       overflow-wrap: anywhere;
     }
     .empty { color: var(--muted); line-height: 1.6; }
+    @keyframes messageIn {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes typingPulse {
+      0%, 80%, 100% { opacity: 0.38; transform: translateY(0); }
+      40% { opacity: 1; transform: translateY(-3px); }
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
     @media (max-width: 1120px) {
       .shell { grid-template-columns: 1fr; }
       aside { height: auto; position: relative; border-right: 0; border-bottom: 1px solid var(--line-soft); }
@@ -1861,7 +1933,7 @@ APP_HTML = """<!doctype html>
             <form class="composer" id="askForm">
               <label>
                 Message
-                <textarea id="question" placeholder="Ask about the deployed corpus"></textarea>
+                <textarea id="question" placeholder="Ask about the deployed corpus" aria-label="Message prompt"></textarea>
               </label>
               <div class="control-grid">
                 <label>Retrieval mode
@@ -1884,8 +1956,9 @@ APP_HTML = """<!doctype html>
                 <label class="switch"><input id="finalApproval" type="checkbox"> HITL final approval</label>
               </div>
               <div class="actions">
-                <button class="primary" id="askButton" type="submit">Send Message</button>
+                <button class="primary" id="askButton" type="submit"><span id="askButtonText">Send Message</span></button>
                 <button class="secondary" id="clearButton" type="button">Clear Composer</button>
+                <span class="composer-status" id="composerStatus" aria-live="polite"></span>
               </div>
             </form>
           </section>
@@ -1989,7 +2062,8 @@ APP_HTML = """<!doctype html>
       runtime: null,
       sessions: [],
       activeSessionId: null,
-      activeSession: null
+      activeSession: null,
+      isGenerating: false
     };
     const $ = (selector) => document.querySelector(selector);
     const $$ = (selector) => Array.from(document.querySelectorAll(selector));
@@ -2039,6 +2113,81 @@ APP_HTML = """<!doctype html>
         sentence_attention: $("#sentenceAttention").checked,
         citation_display: true
       };
+    }
+
+    function isMobileTextInput() {
+      return window.matchMedia && window.matchMedia("(hover: none) and (pointer: coarse)").matches;
+    }
+
+    function setGenerating(isGenerating) {
+      state.isGenerating = isGenerating;
+      $("#askButton").disabled = isGenerating;
+      $("#clearButton").disabled = isGenerating;
+      $("#askButton").classList.toggle("loading", isGenerating);
+      $("#askForm").classList.toggle("loading", isGenerating);
+      $("#askForm").setAttribute("aria-busy", isGenerating ? "true" : "false");
+      $("#askButtonText").textContent = isGenerating ? "Generating" : "Send Message";
+      $("#composerStatus").textContent = isGenerating
+        ? "Retrieving sources and composing the answer..."
+        : "";
+    }
+
+    function appendPendingTurn(message) {
+      $("#messages").insertAdjacentHTML("beforeend", `
+        <article class="message-row user"><div class="message">${escapeHtml(message)}</div></article>
+        <article class="message-row assistant loading" data-pending-response="true">
+          <div class="message">
+            <div class="loading-copy">
+              <span class="typing-indicator" aria-hidden="true"><span></span><span></span><span></span></span>
+              <span>Retrieving evidence and generating the RAG answer...</span>
+            </div>
+          </div>
+        </article>
+      `);
+      $("#messages").scrollTop = $("#messages").scrollHeight;
+    }
+
+    function replacePendingWithError(message) {
+      const pending = document.querySelector('[data-pending-response="true"]');
+      if (!pending) {
+        $("#messages").insertAdjacentHTML("beforeend", `
+          <article class="message-row assistant"><div class="message">${escapeHtml(message)}</div></article>
+        `);
+        return;
+      }
+      pending.classList.remove("loading");
+      pending.removeAttribute("data-pending-response");
+      pending.querySelector(".message").innerHTML = escapeHtml(message);
+    }
+
+    async function submitPrompt() {
+      if (state.isGenerating) return;
+      const body = payloadFromForm();
+      if (!body.message) {
+        $("#question").focus();
+        return;
+      }
+
+      setGenerating(true);
+      appendPendingTurn(body.message);
+      try {
+        const response = await fetch("/api/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body)
+        });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.detail || "Request failed");
+        renderChat(payload);
+        await loadHistory();
+        renderSessionList();
+        $("#question").value = "";
+      } catch (error) {
+        replacePendingWithError(error.message);
+        $("#badges").innerHTML = badge("error", "bad");
+      } finally {
+        setGenerating(false);
+      }
     }
 
     async function loadRuntime() {
@@ -2352,46 +2501,27 @@ APP_HTML = """<!doctype html>
       });
     }
 
-    $("#askForm").addEventListener("submit", async (event) => {
+    $("#askForm").addEventListener("submit", (event) => {
       event.preventDefault();
-      const body = payloadFromForm();
-      if (!body.message) {
-        $("#question").focus();
-        return;
-      }
-      $("#askButton").disabled = true;
-      $("#messages").insertAdjacentHTML("beforeend", `
-        <article class="message-row user"><div class="message">${escapeHtml(body.message)}</div></article>
-        <article class="message-row assistant"><div class="message">Generating final answer...</div></article>
-      `);
-      $("#messages").scrollTop = $("#messages").scrollHeight;
-      try {
-        const response = await fetch("/api/chat", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body)
-        });
-        const payload = await response.json();
-        if (!response.ok) throw new Error(payload.detail || "Request failed");
-        renderChat(payload);
-        await loadHistory();
-        renderSessionList();
-        $("#question").value = "";
-      } catch (error) {
-        $("#messages").insertAdjacentHTML("beforeend", `
-          <article class="message-row assistant"><div class="message">${escapeHtml(error.message)}</div></article>
-        `);
-        $("#badges").innerHTML = badge("error", "bad");
-      } finally {
-        $("#askButton").disabled = false;
-      }
+      submitPrompt();
     });
 
-    // Enter key submits form, Shift+Enter creates new line
     $("#question").addEventListener("keydown", (event) => {
-      if (event.key === "Enter" && !event.shiftKey) {
+      const shouldSubmit = event.key === "Enter"
+        && !event.shiftKey
+        && !event.altKey
+        && !event.ctrlKey
+        && !event.metaKey
+        && !event.isComposing
+        && !isMobileTextInput();
+      if (shouldSubmit) {
         event.preventDefault();
-        $("#askForm").dispatchEvent(new Event("submit"));
+        if (!$("#question").value.trim() || state.isGenerating) return;
+        if ($("#askForm").requestSubmit) {
+          $("#askForm").requestSubmit();
+        } else {
+          submitPrompt();
+        }
       }
     });
 
