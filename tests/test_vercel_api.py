@@ -46,6 +46,8 @@ class VercelApiTests(unittest.TestCase):
         self.assertIn(b"responsive-table", root.body)
         self.assertIn(b"Regenerate", root.body)
         self.assertIn(b"Save & regenerate", root.body)
+        self.assertIn(b"buildThreadMemory", root.body)
+        self.assertIn(b"ensureActiveThread", root.body)
         self.assertEqual(health_check()["status"], "ok")
 
     def test_corpus_is_available_to_vercel_api(self) -> None:
@@ -168,6 +170,44 @@ class VercelApiTests(unittest.TestCase):
                     self.assertEqual(len(regenerated.history), 1)
                     self.assertEqual(regenerated.history[0].user_prompt, "Explain vector retrieval simply.")
                     self.assertNotEqual(regenerated.history[0].assistant_message_id, assistant_before)
+            finally:
+                app_module.chat_history_service = original_service
+
+    def test_client_owned_session_id_is_preserved_for_multi_turn_threads(self) -> None:
+        original_service = app_module.chat_history_service
+        with tempfile.TemporaryDirectory() as tmpdir:
+            app_module.chat_history_service = app_module.ChatHistoryService(Path(tmpdir))
+            try:
+                requested_session_id = "chat_client_owned_thread"
+                with patch.dict(os.environ, {}, clear=True):
+                    first = chat_completion(
+                        ChatRequest(
+                            message="Explain RAG simply.",
+                            session_id=requested_session_id,
+                            session_name="Client-owned thread",
+                            use_wikipedia=False,
+                        )
+                    )
+                    second = append_chat_message(
+                        requested_session_id,
+                        ChatRequest(
+                            message="Now explain how this applies to my app.",
+                            session_id=requested_session_id,
+                            session_name="Client-owned thread",
+                            memory_context=(
+                                "Recent turns:\n"
+                                "User: Explain RAG simply.\n"
+                                "Assistant: RAG combines retrieval and generation."
+                            ),
+                            use_wikipedia=False,
+                        ),
+                    )
+
+                self.assertEqual(first.session_id, requested_session_id)
+                self.assertEqual(second.session_id, requested_session_id)
+                self.assertEqual(len(second.history), 2)
+                self.assertEqual(second.history[0].user_prompt, "Explain RAG simply.")
+                self.assertEqual(second.history[1].user_prompt, "Now explain how this applies to my app.")
             finally:
                 app_module.chat_history_service = original_service
 

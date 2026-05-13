@@ -210,6 +210,8 @@ class ChatSessionUpdate(BaseModel):
 
 class ChatMessageEditRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=12_000)
+    session_name: str | None = Field(default=None, max_length=120)
+    memory_context: str | None = Field(default=None, max_length=4_000)
     top_k: int = Field(default=5, ge=1, le=10)
     retrieval_mode: Literal["bm25", "hybrid", "hierarchical"] = "hybrid"
     use_generation: bool = True
@@ -226,6 +228,8 @@ class ChatMessageEditRequest(BaseModel):
 
 
 class ChatRegenerateRequest(BaseModel):
+    session_name: str | None = Field(default=None, max_length=120)
+    memory_context: str | None = Field(default=None, max_length=4_000)
     top_k: int = Field(default=5, ge=1, le=10)
     retrieval_mode: Literal["bm25", "hybrid", "hierarchical"] = "hybrid"
     use_generation: bool = True
@@ -660,9 +664,11 @@ class ChatHistoryService:
         self,
         session_name: str | None = None,
         seed: dict[str, Any] | None = None,
+        session_id: str | None = None,
     ) -> tuple[dict[str, Any], bool]:
         now = _utc_now_iso()
-        session_id = f"chat_{uuid4().hex[:14]}"
+        requested_session_id = session_id if session_id and SESSION_ID_PATTERN.match(session_id) else ""
+        session_id = requested_session_id or f"chat_{uuid4().hex[:14]}"
         history = _normalize_history(list((seed or {}).get("history") or []))
         session = {
             "version": 2,
@@ -752,7 +758,8 @@ class ChatHistoryService:
             session = self._read_session(session_id) if session_id else None
             if not session:
                 session, _saved = self.create_session(
-                    session_name=session_name or _session_name_from_prompt(user_prompt)
+                    session_name=session_name or _session_name_from_prompt(user_prompt),
+                    session_id=session_id,
                 )
             elif session_name:
                 session["session_name"] = _compact_text(session_name, 120)
@@ -3333,7 +3340,15 @@ APP_HTML = """<!doctype html>
       [...fallback, ...primary].forEach((session) => {
         if (!session || !session.session_id) return;
         const previous = map.get(session.session_id);
-        if (!previous || new Date(session.updated_at || 0) >= new Date(previous.updated_at || 0)) {
+        const sessionTurns = Number(session.exchange_count || (session.history || []).length || 0);
+        const previousTurns = Number(previous && (previous.exchange_count || (previous.history || []).length || 0));
+        const sessionHasHistory = Array.isArray(session.history) && session.history.length > 0;
+        const previousHasHistory = previous && Array.isArray(previous.history) && previous.history.length > 0;
+        const shouldReplace = !previous
+          || sessionTurns > previousTurns
+          || (sessionTurns === previousTurns && sessionHasHistory && !previousHasHistory)
+          || (sessionTurns === previousTurns && sessionHasHistory === previousHasHistory && new Date(session.updated_at || 0) >= new Date(previous.updated_at || 0));
+        if (shouldReplace) {
           map.set(session.session_id, session);
         }
       });
@@ -3376,6 +3391,19 @@ APP_HTML = """<!doctype html>
       return turn.assistant_message_id || `msg_assistant_${turn.turn_id || "draft"}`;
     }
 
+    function clientId(prefix) {
+      const cryptoApi = window.crypto || null;
+      const random = cryptoApi && cryptoApi.randomUUID
+        ? cryptoApi.randomUUID().replaceAll("-", "").slice(0, 14)
+        : `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+      return `${prefix}_${random}`;
+    }
+
+    function sessionTitleFromPrompt(prompt) {
+      const clean = prompt.replace(/\s+/g, " ").trim().replace(/[.?!]+$/, "");
+      return clean ? clean.slice(0, 72) : "New RAG conversation";
+    }
+
     function normalizedHistory(session) {
       if (!session) return [];
       const history = Array.isArray(session.history) ? session.history : [];
@@ -3385,6 +3413,177 @@ APP_HTML = """<!doctype html>
         assistant_message_id: turn.assistant_message_id || assistantMessageId(turn),
         edited: Boolean(turn.edited)
       }));
+    }
+
+    function sourceSnippetsFromPayload(payload) {
+      return (payload.retrieved_chunks || []).slice(0, 5).map((chunk) => ({
+        rank: chunk.rank,
+        file_name: chunk.file_name,
+        path: chunk.path,
+        score: chunk.score,
+        source: chunk.source,
+        source_type: chunk.source_type,
+        source_url: chunk.source_url,
+        page_title: chunk.page_title,
+        snippet: (chunk.text || "").replace(/\s+/g, " ").trim().slice(0, 520)
+      }));
+    }
+
+    function metadataFromPayload(payload) {
+      return {
+        retrieval_mode: payload.retrieval_mode,
+        confidence: payload.confidence,
+        provider: payload.provider,
+        needs_review: payload.needs_review,
+        used_methods: payload.used_methods || [],
+        citation_count: (payload.citations || []).length,
+        retrieved_chunk_count: (payload.retrieved_chunks || []).length,
+        wikipedia_count: (payload.retrieved_chunks || []).filter((chunk) => chunk.source_type === "wikipedia").length,
+        guardrails: payload.guardrails,
+        checkpoints: payload.checkpoints || [],
+        pipeline: payload.pipeline || []
+      };
+    }
+
+    function createLocalThread(prompt) {
+      const now = new Date().toISOString();
+      return {
+        session_id: clientId("chat"),
+        session_name: sessionTitleFromPrompt(prompt),
+        user_agenda: "",
+        memory_summary: "",
+        created_at: now,
+        updated_at: now,
+        exchange_count: 0,
+        last_prompt: "",
+        last_response: "",
+        metadata: {},
+        history: [],
+        messages: []
+      };
+    }
+
+    function ensureActiveThread(prompt) {
+      if (state.activeSession && state.activeSessionId) return state.activeSession;
+      const thread = createLocalThread(prompt);
+      state.activeSession = thread;
+      state.activeSessionId = thread.session_id;
+      $("#currentSessionName").textContent = thread.session_name;
+      updateMobileHeader("Draft");
+      state.sessions = mergeSessions([sessionSummary(thread)], state.sessions);
+      saveLocalSession(thread);
+      renderSessionList();
+      return thread;
+    }
+
+    function compactClientText(text, maxChars = 700) {
+      const clean = String(text || "").replace(/\s+/g, " ").trim();
+      return clean.length > maxChars ? `${clean.slice(0, maxChars - 1).trim()}...` : clean;
+    }
+
+    function buildThreadMemory(thread, currentPrompt = "", uptoTurnIndex = null) {
+      const history = normalizedHistory(thread);
+      const scopedHistory = uptoTurnIndex === null ? history : history.slice(0, uptoTurnIndex);
+      const recent = scopedHistory.slice(-6);
+      const older = scopedHistory.slice(0, Math.max(0, scopedHistory.length - recent.length));
+      const parts = [];
+      if (thread && thread.user_agenda) parts.push(`Thread agenda: ${compactClientText(thread.user_agenda, 420)}`);
+      if (thread && thread.memory_summary) parts.push(`Thread memory summary: ${compactClientText(thread.memory_summary, 620)}`);
+      if (older.length) {
+        const olderText = older.map((turn) => turn.user_prompt).filter(Boolean).join(" | ");
+        parts.push(`Earlier thread questions: ${compactClientText(olderText, 620)}`);
+      }
+      if (recent.length) {
+        parts.push("Recent turns:");
+        recent.forEach((turn) => {
+          parts.push(`User: ${compactClientText(turn.user_prompt, 220)}`);
+          parts.push(`Assistant: ${compactClientText(turn.ai_response, 300)}`);
+        });
+      }
+      if (currentPrompt) parts.push(`Current prompt: ${compactClientText(currentPrompt, 500)}`);
+      return compactClientText(parts.join("\n"), 3800);
+    }
+
+    function buildClientMemorySummary(history) {
+      const turns = normalizedHistory({ history });
+      if (turns.length <= 4) return "";
+      const older = turns.slice(0, -4);
+      const questions = older.map((turn) => turn.user_prompt).filter(Boolean).join(" | ");
+      return compactClientText(`Earlier in this thread, the user asked: ${questions}`, 900);
+    }
+
+    function createTurnFromPayload(prompt, payload, previousTurn = {}) {
+      const now = new Date().toISOString();
+      const turnId = previousTurn.turn_id || clientId("turn");
+      const userMessageIdValue = previousTurn.user_message_id || clientId("msg_user");
+      return {
+        turn_id: turnId,
+        timestamp: previousTurn.timestamp || now,
+        updated_at: now,
+        user_message_id: userMessageIdValue,
+        assistant_message_id: clientId("msg_assistant"),
+        user_prompt: prompt,
+        ai_response: payload.finalized_answer || payload.answer || "",
+        edited: Boolean(previousTurn.edited),
+        metadata: metadataFromPayload(payload),
+        citations: payload.citations || [],
+        source_snippets: sourceSnippetsFromPayload(payload),
+        suggestions: payload.suggestions || []
+      };
+    }
+
+    function threadWithHistory(thread, history, payload = null) {
+      const now = new Date().toISOString();
+      const lastTurn = history.length ? history[history.length - 1] : {};
+      return {
+        ...(thread || createLocalThread(lastTurn.user_prompt || "")),
+        session_id: (thread && thread.session_id) || (payload && payload.session_id) || clientId("chat"),
+        session_name: (thread && thread.session_name && thread.session_name !== "New RAG conversation")
+          ? thread.session_name
+          : (payload && payload.session_name) || sessionTitleFromPrompt(lastTurn.user_prompt || ""),
+        user_agenda: (payload && payload.agenda_summary) || (thread && thread.user_agenda) || "",
+        memory_summary: (payload && payload.memory_summary) || buildClientMemorySummary(history) || (thread && thread.memory_summary) || "",
+        updated_at: now,
+        exchange_count: history.length,
+        last_prompt: lastTurn.user_prompt || "",
+        last_response: lastTurn.ai_response || "",
+        metadata: lastTurn.metadata || (thread && thread.metadata) || {},
+        history,
+        messages: []
+      };
+    }
+
+    function persistActiveThread(thread) {
+      state.activeSession = { ...thread, history: normalizedHistory(thread) };
+      state.activeSessionId = state.activeSession.session_id;
+      saveLocalSession(state.activeSession);
+      state.sessions = mergeSessions([sessionSummary(state.activeSession)], state.sessions);
+    }
+
+    function renderLatestPayloadDetails(payload) {
+      if (!payload) return;
+      renderRunMetadata(metadataFromPayload(payload));
+      $("#badges").innerHTML = [
+        payload.provider ? badge(payload.provider) : "",
+        typeof payload.confidence === "number" ? badge(`confidence ${payload.confidence}`, payload.needs_review ? "warn" : "good") : "",
+        payload.retrieval_mode ? badge(payload.retrieval_mode) : "",
+        badge(payload.needs_review ? "needs review" : "finalized", payload.needs_review ? "warn" : "good"),
+        payload.chat_saved === false ? badge("browser saved", "warn") : badge("saved", "good")
+      ].join("");
+      renderCitations(payload.citations || []);
+      renderSourceSnippets(payload.retrieved_chunks || []);
+      $("#retrievedChunks").innerHTML = (payload.retrieved_chunks || []).map((chunk) => `
+        <details class="item citation-card" open>
+          <summary><span>${chunk.rank}. ${escapeHtml(chunk.page_title || chunk.file_name)}</span><span>${escapeHtml(chunk.source_type || "local")} | ${escapeHtml(chunk.source)} | ${chunk.score}</span></summary>
+          <p>${escapeHtml(chunk.text)}</p>
+          ${chunk.source_url ? `<p><a href="${escapeHtml(chunk.source_url)}" target="_blank" rel="noreferrer">${escapeHtml(chunk.source_url)}</a></p>` : ""}
+        </details>
+      `).join("") || empty("No retrieved chunks returned.");
+      if (payload.guardrails) renderGuardrails(payload.guardrails);
+      if (payload.pipeline) renderFlow(payload.pipeline);
+      if (payload.checkpoints) renderCheckpoints(payload.checkpoints);
+      if (payload.reflection) $("#reflection").textContent = payload.reflection;
+      renderSuggestions(payload.suggestions || []);
     }
 
     function requestOptions() {
@@ -3549,18 +3748,21 @@ APP_HTML = """<!doctype html>
         return;
       }
 
+      const thread = ensureActiveThread(body.message);
+      body.session_id = thread.session_id;
+      body.session_name = thread.session_name;
+      body.memory_context = buildThreadMemory(thread, body.message);
       setGenerating(true);
       appendPendingTurn(body.message);
+      $("#question").value = "";
       try {
-        const endpoint = state.activeSessionId
-          ? `/api/chats/${encodeURIComponent(state.activeSessionId)}/messages`
-          : "/api/chat";
+        const endpoint = `/api/chats/${encodeURIComponent(thread.session_id)}/messages`;
         let response = await fetch(endpoint, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body)
         });
-        if (!response.ok && response.status === 404 && state.activeSessionId) {
+        if (!response.ok && response.status === 404) {
           response = await fetch("/api/chat", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -3569,10 +3771,9 @@ APP_HTML = """<!doctype html>
         }
         const payload = await response.json();
         if (!response.ok) throw new Error(payload.detail || "Request failed");
-        renderChat(payload);
+        renderChat(payload, body.message, thread);
         await loadHistory();
         renderSessionList();
-        $("#question").value = "";
       } catch (error) {
         replacePendingWithError(error.message);
         $("#badges").innerHTML = badge("error", "bad");
@@ -3721,14 +3922,17 @@ APP_HTML = """<!doctype html>
     }
 
     async function loadSession(sessionId) {
+      const local = findLocalSession(sessionId);
       try {
         const response = await fetch(`/api/chat/history/${encodeURIComponent(sessionId)}`);
         const payload = await response.json();
         if (!response.ok) throw new Error(payload.detail || "Could not load session");
-        renderSession(payload);
-        saveLocalSession(payload);
+        const payloadTurns = (payload.history || []).length;
+        const localTurns = local ? normalizedHistory(local).length : 0;
+        const session = local && localTurns > payloadTurns ? local : payload;
+        renderSession(session);
+        saveLocalSession(session);
       } catch (_error) {
-        const local = findLocalSession(sessionId);
         if (!local) throw _error;
         renderSession(local);
       }
@@ -3904,21 +4108,53 @@ APP_HTML = """<!doctype html>
         if (draft) draft.focus();
         return;
       }
+      const history = normalizedHistory(state.activeSession);
+      const turnIndex = history.findIndex((turn) => turn.user_message_id === messageId || turn.turn_id === messageId);
+      if (turnIndex < 0) return;
+      const branchThread = threadWithHistory(state.activeSession, history.slice(0, turnIndex));
+      const requestBody = {
+        ...requestOptions(),
+        message,
+        session_id: state.activeSessionId,
+        session_name: state.activeSession.session_name,
+        memory_context: buildThreadMemory(state.activeSession, message, turnIndex)
+      };
       setGenerating(true);
       try {
-        const response = await fetch(`/api/chats/${encodeURIComponent(state.activeSessionId)}/messages/${encodeURIComponent(messageId)}`, {
+        let response = await fetch(`/api/chats/${encodeURIComponent(state.activeSessionId)}/messages/${encodeURIComponent(messageId)}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ...requestOptions(), message })
+          body: JSON.stringify(requestBody)
         });
+        if (!response.ok && response.status === 404) {
+          response = await fetch("/api/chat", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(requestBody)
+          });
+        }
         const payload = await response.json();
         if (!response.ok) throw new Error(payload.detail || "Could not edit prompt");
         state.editingMessageId = null;
-        renderSession(payload);
+        if (payload.answer !== undefined || payload.finalized_answer !== undefined) {
+          const editedTurn = createTurnFromPayload(message, payload, {
+            ...history[turnIndex],
+            user_prompt: message,
+            edited: true
+          });
+          editedTurn.edited = true;
+          const updatedThread = threadWithHistory(state.activeSession, [...history.slice(0, turnIndex), editedTurn], payload);
+          persistActiveThread(updatedThread);
+          renderSession(state.activeSession);
+          renderLatestPayloadDetails(payload);
+        } else {
+          renderSession(payload);
+        }
         await loadHistory();
         renderSessionList();
       } catch (error) {
         $("#badges").innerHTML = badge(error.message, "bad");
+        renderSession(state.activeSession || branchThread);
       } finally {
         setGenerating(false);
       }
@@ -3926,6 +4162,17 @@ APP_HTML = """<!doctype html>
 
     async function regenerateLatestResponse() {
       if (!state.activeSessionId || state.isGenerating) return;
+      const history = normalizedHistory(state.activeSession);
+      if (!history.length) return;
+      const turnIndex = history.length - 1;
+      const latestTurn = history[turnIndex];
+      const requestBody = {
+        ...requestOptions(),
+        message: latestTurn.user_prompt,
+        session_id: state.activeSessionId,
+        session_name: state.activeSession.session_name,
+        memory_context: buildThreadMemory(state.activeSession, latestTurn.user_prompt, turnIndex)
+      };
       setGenerating(true);
       $("#messages").insertAdjacentHTML("beforeend", `
         <article class="message-row assistant loading" data-pending-response="true">
@@ -3939,14 +4186,30 @@ APP_HTML = """<!doctype html>
       `);
       $("#messages").scrollTop = $("#messages").scrollHeight;
       try {
-        const response = await fetch(`/api/chats/${encodeURIComponent(state.activeSessionId)}/regenerate`, {
+        let response = await fetch(`/api/chats/${encodeURIComponent(state.activeSessionId)}/regenerate`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(requestOptions())
+          body: JSON.stringify(requestBody)
         });
+        if (!response.ok && response.status === 404) {
+          response = await fetch("/api/chat", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(requestBody)
+          });
+        }
         const payload = await response.json();
         if (!response.ok) throw new Error(payload.detail || "Could not regenerate answer");
-        renderSession(payload);
+        if (payload.answer !== undefined || payload.finalized_answer !== undefined) {
+          const regeneratedTurn = createTurnFromPayload(latestTurn.user_prompt, payload, latestTurn);
+          regeneratedTurn.edited = Boolean(latestTurn.edited);
+          const updatedThread = threadWithHistory(state.activeSession, [...history.slice(0, turnIndex), regeneratedTurn], payload);
+          persistActiveThread(updatedThread);
+          renderSession(state.activeSession);
+          renderLatestPayloadDetails(payload);
+        } else {
+          renderSession(payload);
+        }
         await loadHistory();
         renderSessionList();
       } catch (error) {
@@ -3983,57 +4246,23 @@ APP_HTML = """<!doctype html>
       bindPromptButtons();
     }
 
-    function renderChat(payload) {
+    function renderChat(payload, prompt = "", baseThread = null) {
       state.last = payload;
-      state.activeSessionId = payload.session_id;
       state.editingMessageId = null;
-      state.activeSession = {
-        session_id: payload.session_id,
-        session_name: payload.session_name || "RAG conversation",
-        user_agenda: payload.agenda_summary || "",
-        memory_summary: payload.memory_summary || "",
-        created_at: payload.history && payload.history.length ? payload.history[0].timestamp : new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        exchange_count: payload.history ? payload.history.length : 0,
-        history: normalizedHistory(payload),
-        messages: payload.messages || []
-      };
-      saveLocalSession(state.activeSession);
+      const thread = baseThread || state.activeSession || createLocalThread(prompt || "RAG conversation");
+      const history = normalizedHistory(thread);
+      const responsePrompt = prompt
+        || (payload.history && payload.history.length ? payload.history[payload.history.length - 1].user_prompt : "")
+        || "";
+      const nextTurn = createTurnFromPayload(responsePrompt, payload);
+      const updatedThread = threadWithHistory(thread, [...history, nextTurn], payload);
+      persistActiveThread(updatedThread);
       $("#currentSessionName").textContent = state.activeSession.session_name;
       updateMobileHeader("Saved");
-      $("#agendaSummary").textContent = payload.agenda_summary || "The session agenda will build from your prompts.";
-      $("#agendaSummary").classList.toggle("empty", !payload.agenda_summary);
+      $("#agendaSummary").textContent = state.activeSession.user_agenda || "The session agenda will build from your prompts.";
+      $("#agendaSummary").classList.toggle("empty", !state.activeSession.user_agenda);
       renderSessionMessages(state.activeSession.history || []);
-      renderSuggestions(payload.suggestions || []);
-      renderRunMetadata({
-        provider: payload.provider,
-        retrieval_mode: payload.retrieval_mode,
-        confidence: payload.confidence,
-        needs_review: payload.needs_review,
-        citation_count: payload.citations.length,
-        retrieved_chunk_count: payload.retrieved_chunks.length,
-        wikipedia_count: payload.retrieved_chunks.filter((chunk) => chunk.source_type === "wikipedia").length
-      });
-      $("#badges").innerHTML = [
-        badge(payload.provider),
-        badge(`confidence ${payload.confidence}`, payload.needs_review ? "warn" : "good"),
-        badge(payload.retrieval_mode),
-        badge(payload.needs_review ? "needs review" : "finalized", payload.needs_review ? "warn" : "good"),
-        badge(payload.chat_saved ? "saved" : "not saved", payload.chat_saved ? "good" : "warn")
-      ].join("");
-      renderCitations(payload.citations || []);
-      renderSourceSnippets(payload.retrieved_chunks || []);
-      $("#retrievedChunks").innerHTML = payload.retrieved_chunks.map((chunk) => `
-        <details class="item citation-card" open>
-          <summary><span>${chunk.rank}. ${escapeHtml(chunk.page_title || chunk.file_name)}</span><span>${escapeHtml(chunk.source_type || "local")} | ${escapeHtml(chunk.source)} | ${chunk.score}</span></summary>
-          <p>${escapeHtml(chunk.text)}</p>
-          ${chunk.source_url ? `<p><a href="${escapeHtml(chunk.source_url)}" target="_blank" rel="noreferrer">${escapeHtml(chunk.source_url)}</a></p>` : ""}
-        </details>
-      `).join("") || empty("No retrieved chunks returned.");
-      renderGuardrails(payload.guardrails);
-      renderFlow(payload.pipeline);
-      renderCheckpoints(payload.checkpoints);
-      $("#reflection").textContent = payload.reflection;
+      renderLatestPayloadDetails(payload);
       renderSessionList();
       syncResponsivePanels();
     }

@@ -65,7 +65,7 @@ Chat sessions are saved automatically after each answer. Each session stores:
 
 The UI loads saved sessions in the left sidebar and can resume or clone an older chat. Opening an old thread restores the full transcript and follow-up prompts append to that same thread. Thread memory is built from the agenda, compact older-summary, and recent turns, and is sent only for that active thread so separate chats do not mix context.
 
-The backend stores history under `data/chat_history/` for local runs. On Vercel/serverless deployments, filesystem writes may be ephemeral, so the browser UI also keeps a best-effort `localStorage` cache for that browser. This is not a multi-user durable database.
+The browser keeps the active thread transcript as the UI source of truth, appends new turns locally, and sends the active `session_id` plus compact thread memory to the backend for each follow-up. The backend stores history under `data/chat_history/` for local runs. On Vercel/serverless deployments, filesystem writes may be ephemeral, so the browser UI also keeps a best-effort `localStorage` cache for that browser. This is not a multi-user durable database.
 
 ## Wikipedia Text Retrieval
 
