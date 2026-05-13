@@ -36,6 +36,9 @@ class VercelApiTests(unittest.TestCase):
         self.assertIn(b"Knowledge Base", root.body)
         self.assertIn(b"Evaluation &amp; Diagnostics", root.body)
         self.assertIn(b"localStorage", root.body)
+        self.assertIn(b"drawerToggle", root.body)
+        self.assertIn(b"composerOptions", root.body)
+        self.assertIn(b"responsive-table", root.body)
         self.assertEqual(health_check()["status"], "ok")
 
     def test_corpus_is_available_to_vercel_api(self) -> None:

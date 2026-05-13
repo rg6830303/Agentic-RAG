@@ -28,6 +28,13 @@ This repository is a Vercel-native FastAPI application with a built-in dark blue
 - Loading feedback shows a retrieval/generation state while the RAG pipeline runs.
 - Empty state prompt chips help start common workflows such as summarizing the corpus, comparing retrieved sources, or asking for Wikipedia-backed context.
 
+## Mobile UX
+
+- Phone and tablet layouts use a compact sticky header with the current chat title and status.
+- The desktop sidebar becomes a slide-out drawer on smaller screens, with New Chat, saved chats, Knowledge Base, and Diagnostics still available.
+- Retrieval settings and advanced answer details collapse on mobile so the chat remains the primary surface.
+- Citations, source URLs, source paths, diagnostics rows, and retrieved chunks wrap or collapse to avoid page-level horizontal scrolling.
+
 ## Stitch UI Integration
 
 The current UI is integrated from the Google Stitch export in `design/stitch-export/stitch_agentic_rag_enterprise_interface/`. The FastAPI app still serves a single HTML/CSS/JS shell from `app.py` for Vercel compatibility, but the visual system, navigation, chat layout, knowledge base cards, source viewer treatment, and diagnostics styling follow the Stitch screens and `DESIGN.md` tokens.

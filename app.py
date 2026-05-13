@@ -1622,9 +1622,12 @@ APP_HTML = """<!doctype html>
       --shadow-soft: 0 10px 30px rgba(0, 0, 0, 0.22);
     }
     * { box-sizing: border-box; }
+    html { width: 100%; overflow-x: hidden; }
     body {
       margin: 0;
       min-height: 100vh;
+      width: 100%;
+      overflow-x: hidden;
       font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       color: var(--ink);
       background:
@@ -1636,6 +1639,15 @@ APP_HTML = """<!doctype html>
     h1, h2, h3, p { margin: 0; }
     a { color: #7dd3fc; text-decoration: none; }
     a:hover { text-decoration: underline; }
+    a, pre, code, .item, .message, .badge, .session-card { overflow-wrap: anywhere; }
+    .desktop-hidden { display: none !important; }
+    .scroll-safe { max-width: 100%; overflow-x: auto; }
+    .truncate {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
     .material-symbols-outlined {
       font-family: "Material Symbols Outlined";
       font-weight: normal;
@@ -1650,10 +1662,54 @@ APP_HTML = """<!doctype html>
       -webkit-font-feature-settings: "liga";
       -webkit-font-smoothing: antialiased;
     }
+    .mobile-topbar {
+      position: sticky;
+      top: 0;
+      z-index: 70;
+      min-height: 62px;
+      padding: 10px 14px;
+      padding-top: max(10px, env(safe-area-inset-top));
+      align-items: center;
+      gap: 12px;
+      border-bottom: 1px solid var(--line-soft);
+      background: rgba(1, 15, 31, 0.92);
+      backdrop-filter: blur(18px);
+      box-shadow: 0 14px 34px rgba(0, 0, 0, 0.24);
+    }
+    .mobile-title {
+      min-width: 0;
+      display: grid;
+      gap: 2px;
+      flex: 1;
+    }
+    .mobile-title strong {
+      display: block;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: var(--ink);
+      font-size: 14px;
+      line-height: 1.2;
+    }
+    .drawer-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 80;
+      background: rgba(1, 8, 18, 0.62);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.18s ease;
+    }
+    body.drawer-open .drawer-overlay {
+      opacity: 1;
+      pointer-events: auto;
+    }
     .shell {
       min-height: 100vh;
       display: grid;
       grid-template-columns: 320px minmax(0, 1fr);
+      min-width: 0;
     }
     aside {
       padding: 22px;
@@ -1664,10 +1720,20 @@ APP_HTML = """<!doctype html>
       height: 100vh;
       overflow: auto;
     }
+    .drawer-head {
+      display: none;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 12px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--line-soft);
+    }
     main {
       padding: 24px;
       display: grid;
       gap: 18px;
+      min-width: 0;
     }
     .brand { display: grid; gap: 10px; margin-bottom: 18px; }
     .brand h1 { font-size: 30px; line-height: 1.08; }
@@ -1944,6 +2010,33 @@ APP_HTML = """<!doctype html>
       font-size: 15px;
     }
     .composer textarea::placeholder { color: #7896b5; }
+    .composer-options {
+      display: grid;
+      gap: 12px;
+    }
+    .composer-options > summary {
+      display: none;
+      list-style: none;
+      cursor: pointer;
+      color: var(--soft);
+      font-weight: 900;
+      min-height: 44px;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 10px 12px;
+      border: 1px solid var(--line-soft);
+      border-radius: 8px;
+      background: rgba(9, 26, 49, 0.82);
+    }
+    .composer-options > summary::-webkit-details-marker { display: none; }
+    .composer-options > summary:after {
+      content: "expand_more";
+      font-family: "Material Symbols Outlined";
+      font-size: 20px;
+      transition: transform 0.16s ease;
+    }
+    .composer-options[open] > summary:after { transform: rotate(180deg); }
     .composer-status {
       min-height: 42px;
       display: inline-flex;
@@ -1976,6 +2069,19 @@ APP_HTML = """<!doctype html>
     .insight-stack {
       display: grid;
       gap: 14px;
+    }
+    details.insight-panel > summary {
+      list-style: none;
+      cursor: pointer;
+      color: var(--ink);
+      font-size: 16px;
+      font-weight: 800;
+      margin-bottom: 12px;
+    }
+    details.insight-panel > summary::-webkit-details-marker { display: none; }
+    details.insight-panel > summary:after {
+      content: "";
+      display: none;
     }
     .agenda-text {
       color: var(--soft);
@@ -2138,6 +2244,7 @@ APP_HTML = """<!doctype html>
       border-radius: 8px;
       padding: 12px;
       background: rgba(7, 20, 39, 0.62);
+      min-width: 0;
     }
     .item header {
       display: flex;
@@ -2146,9 +2253,45 @@ APP_HTML = """<!doctype html>
       margin-bottom: 7px;
       color: var(--soft);
       font-weight: 800;
+      min-width: 0;
+    }
+    .item header span {
+      min-width: 0;
+      overflow-wrap: anywhere;
     }
     .item p, .item pre { color: var(--muted); line-height: 1.55; font-size: 13px; }
     .item pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }
+    .item a {
+      display: inline-block;
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      vertical-align: bottom;
+      white-space: nowrap;
+    }
+    .citation-card {
+      cursor: pointer;
+    }
+    .citation-card > summary {
+      list-style: none;
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      color: var(--soft);
+      font-weight: 800;
+      min-width: 0;
+    }
+    .citation-card > summary::-webkit-details-marker { display: none; }
+    .citation-card > summary span {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .citation-card > p,
+    .citation-card > .attention {
+      margin-top: 8px;
+    }
     .attention { margin-top: 8px; display: grid; gap: 6px; }
     .attention div { color: #b6d7ff; font-size: 12px; }
     .hitl-actions { display: flex; gap: 8px; margin-top: 10px; }
@@ -2231,26 +2374,274 @@ APP_HTML = """<!doctype html>
     @keyframes spin {
       to { transform: rotate(360deg); }
     }
-    @media (max-width: 1120px) {
-      .shell { grid-template-columns: 1fr; }
-      aside { height: auto; position: relative; border-right: 0; border-bottom: 1px solid var(--line-soft); }
-      .workspace, .chat-grid, .subgrid { grid-template-columns: 1fr; }
-      .insight-stack { position: relative; top: auto; max-height: none; }
-      .conversation-panel { min-height: auto; }
-      .flow { grid-template-columns: 1fr 1fr; }
+    @media (max-width: 1240px) and (min-width: 1025px) {
+      .shell { grid-template-columns: 292px minmax(0, 1fr); }
+      main, aside { padding: 18px; }
+      .chat-grid { grid-template-columns: minmax(0, 1fr) minmax(270px, 0.55fr); }
+      .workspace { grid-template-columns: minmax(280px, 0.8fr) minmax(360px, 1.2fr); }
+      .flow { grid-template-columns: repeat(2, minmax(180px, 1fr)); }
+      .node:nth-child(2n):after { display: none; }
     }
-    @media (max-width: 680px) {
-      main, aside { padding: 16px; }
-      .control-grid, .switch-row, .flow { grid-template-columns: 1fr; }
-      .conversation-head { display: grid; }
-      .message { max-width: 100%; }
+    @media (max-width: 1024px) {
+      .desktop-hidden { display: flex !important; }
+      body.drawer-open { overflow: hidden; }
+      .shell {
+        grid-template-columns: minmax(0, 1fr);
+        min-height: calc(100vh - 62px);
+      }
+      aside {
+        position: fixed;
+        inset: 0 auto 0 0;
+        z-index: 90;
+        width: min(86vw, 350px);
+        height: 100dvh;
+        border-right: 1px solid var(--line-soft);
+        border-bottom: 0;
+        transform: translateX(-102%);
+        transition: transform 0.2s ease;
+        box-shadow: 28px 0 72px rgba(0, 0, 0, 0.44);
+        padding: 16px;
+        padding-top: max(16px, env(safe-area-inset-top));
+      }
+      body.drawer-open aside { transform: translateX(0); }
+      .drawer-head { display: flex; }
+      .brand h1 { font-size: 24px; }
+      .brand p { font-size: 13px; }
+      main {
+        padding: 16px;
+        padding-bottom: max(16px, env(safe-area-inset-bottom));
+      }
+      .workspace, .chat-grid, .subgrid { grid-template-columns: minmax(0, 1fr); }
+      .insight-stack {
+        position: relative;
+        top: auto;
+        max-height: none;
+        overflow: visible;
+      }
+      .conversation-panel {
+        min-height: calc(100dvh - 94px);
+        grid-template-rows: minmax(260px, 1fr) auto;
+      }
+      .conversation-panel > .conversation-head { display: none; }
+      .panel.pad { padding: 16px; }
+      .flow { grid-template-columns: minmax(0, 1fr); }
       .node:after { display: none; }
+      .composer {
+        position: sticky;
+        bottom: max(10px, env(safe-area-inset-bottom));
+        z-index: 30;
+        gap: 10px;
+        padding: 12px;
+        border-radius: 16px;
+      }
+      .composer textarea {
+        min-height: 82px;
+        max-height: 32vh;
+        font-size: 16px;
+      }
+      .composer-options > summary { display: flex; }
+      .composer-options:not([open]) .control-grid,
+      .composer-options:not([open]) .switch-row { display: none; }
+      details.insight-panel > summary {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 10px;
+        min-height: 44px;
+        margin: -2px 0 0;
+      }
+      details.insight-panel > summary:after {
+        content: "expand_more";
+        display: inline-block;
+        font-family: "Material Symbols Outlined";
+        font-size: 20px;
+        color: var(--cyan);
+        transition: transform 0.16s ease;
+      }
+      details.insight-panel[open] > summary:after { transform: rotate(180deg); }
+      details.insight-panel:not([open]) { padding-bottom: 14px; }
+      .table-wrap { overflow-x: visible; }
+    }
+    @media (max-width: 768px) {
+      main { padding: 12px; }
+      .section.active { gap: 12px; }
+      .panel { border-radius: 10px; box-shadow: var(--shadow-soft); }
+      .message-list {
+        min-height: clamp(240px, calc(100dvh - 400px), 580px);
+        max-height: none;
+        padding: 4px 0 8px;
+      }
+      .message-row.user .message { border-top-right-radius: 6px; }
+      .message-row.assistant .message { border-top-left-radius: 6px; }
+      .message {
+        max-width: 94%;
+        padding: 12px 13px;
+        font-size: 14px;
+        line-height: 1.62;
+      }
+      .message-row.assistant .message { max-width: 100%; }
+      .empty-state {
+        align-self: start;
+        padding: 16px;
+      }
+      .empty-state h3 { font-size: 19px; }
+      .empty-prompts { grid-template-columns: minmax(0, 1fr); }
+      .control-grid, .switch-row { grid-template-columns: minmax(0, 1fr); }
+      .actions {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: stretch;
+      }
+      .actions .primary,
+      .actions .secondary { min-height: 46px; }
+      .actions .secondary { padding-inline: 12px; }
+      .composer-status {
+        grid-column: 1 / -1;
+        min-height: 24px;
+        font-size: 12px;
+      }
+      .system-strip, #badges { gap: 6px; }
+      .badge {
+        max-width: 100%;
+        font-size: 11px;
+        padding: 5px 8px;
+      }
+      .metric-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+      .item header,
+      .citation-card > summary {
+        align-items: flex-start;
+        flex-wrap: wrap;
+      }
+      .item a { max-width: 100%; }
+      .source-list { max-height: 38vh; }
+      .source-button {
+        min-height: 44px;
+        padding: 11px 12px;
+      }
+      .hitl-actions,
+      .actions:not(.mobile-topbar) { gap: 8px; }
+      .hitl-btn { min-height: 44px; }
+      .responsive-table,
+      .responsive-table thead,
+      .responsive-table tbody,
+      .responsive-table tr,
+      .responsive-table th,
+      .responsive-table td { display: block; width: 100%; }
+      .responsive-table thead { display: none; }
+      .responsive-table tr {
+        margin-bottom: 10px;
+        border: 1px solid var(--line-soft);
+        border-radius: 8px;
+        background: rgba(7, 20, 39, 0.62);
+        padding: 10px;
+      }
+      .responsive-table td {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        border: 0;
+        padding: 7px 0;
+      }
+      .responsive-table td:before {
+        content: attr(data-label);
+        color: var(--soft);
+        font-weight: 800;
+        flex: 0 0 45%;
+      }
+    }
+    @media (max-width: 640px) {
+      .mobile-topbar { min-height: 58px; padding-inline: 10px; }
+      .mobile-topbar .badge {
+        max-width: 94px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .icon-button {
+        min-width: 44px;
+        min-height: 44px;
+      }
+      .panel.pad.conversation-panel {
+        min-height: calc(100dvh - 82px);
+        border: 0;
+        background: transparent;
+        box-shadow: none;
+        padding: 0;
+      }
+      .chat-grid { gap: 12px; }
+      .message { max-width: 96%; }
+      .message-row.assistant .message { max-width: 100%; }
+      .message .attention .item p,
+      #citations .item p,
+      #sourceSnippets .item p {
+        display: -webkit-box;
+        -webkit-line-clamp: 4;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+      }
+      .citation-card[open] p,
+      #citations .citation-card[open] p,
+      #sourceSnippets .citation-card[open] p {
+        display: block;
+      }
+      .composer textarea::placeholder { font-size: 13px; }
+      .switch { min-height: 44px; }
+      .brand { margin-bottom: 14px; }
+      .tabs { margin: 16px 0; }
+      .tab { min-height: 44px; }
+      .source-button {
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        overflow-wrap: normal;
+      }
+    }
+    @media (max-width: 480px) {
+      aside { width: min(92vw, 340px); }
+      main { padding: 10px; }
+      .panel.pad { padding: 14px; }
+      .message-list { min-height: clamp(220px, calc(100dvh - 390px), 440px); }
+      .message {
+        max-width: 100%;
+        font-size: 13.5px;
+      }
+      .composer {
+        padding: 10px;
+        gap: 9px;
+      }
+      .composer textarea { min-height: 76px; }
+      .composer-status { display: none; }
+      .actions { grid-template-columns: 1fr; }
+      .actions .secondary { display: none; }
+      .metric-grid { grid-template-columns: minmax(0, 1fr); }
+      .badge-row { gap: 6px; }
+      .mobile-title .eyebrow { display: none; }
+      .empty-state p { font-size: 13px; }
+      .responsive-table td { display: grid; gap: 4px; }
+      .responsive-table td:before { flex-basis: auto; }
     }
   </style>
 </head>
 <body>
+  <header class="mobile-topbar desktop-hidden" aria-label="Mobile navigation">
+    <button class="icon-button" id="drawerToggle" type="button" aria-controls="sidebarDrawer" aria-expanded="false" title="Open navigation">
+      <span class="material-symbols-outlined">menu</span>
+    </button>
+    <div class="mobile-title">
+      <span class="eyebrow">Agentic RAG</span>
+      <strong id="mobileSessionName">New RAG conversation</strong>
+    </div>
+    <span class="badge good" id="mobileStatusBadge">Ready</span>
+  </header>
+  <div class="drawer-overlay desktop-hidden" id="drawerOverlay" aria-hidden="true"></div>
   <div class="shell">
-    <aside>
+    <aside id="sidebarDrawer" aria-label="Agentic RAG navigation">
+      <div class="drawer-head">
+        <span class="stitch-note">Workspace</span>
+        <button class="icon-button" id="drawerClose" type="button" title="Close navigation">
+          <span class="material-symbols-outlined">close</span>
+        </button>
+      </div>
       <section class="brand">
         <div class="brand-mark"><span class="material-symbols-outlined">memory</span></div>
         <h1>Agentic RAG</h1>
@@ -2317,27 +2708,30 @@ APP_HTML = """<!doctype html>
                 Message
                 <textarea id="question" placeholder="Ask about the deployed corpus, compare sources, or search Wikipedia-backed knowledge" aria-label="Message prompt"></textarea>
               </label>
-              <div class="control-grid">
-                <label>Retrieval mode
-                  <select id="retrievalMode">
-                    <option value="hybrid">Hybrid</option>
-                    <option value="bm25">BM25</option>
-                    <option value="hierarchical">Hierarchical</option>
-                  </select>
-                </label>
-                <label>Top K
-                  <input id="topK" type="number" min="1" max="10" value="5">
-                </label>
-              </div>
-              <div class="switch-row">
-                <label class="switch"><input id="useGeneration" type="checkbox" checked> Model synthesis</label>
-                <label class="switch"><input id="useReranking" type="checkbox" checked> Reranking</label>
-                <label class="switch"><input id="selfRag" type="checkbox" checked> Self-RAG</label>
-                <label class="switch"><input id="useWikipedia" type="checkbox" checked> Wikipedia text</label>
-                <label class="switch"><input id="sentenceAttention" type="checkbox" checked> Sentence attention</label>
-                <label class="switch"><input id="contextReview" type="checkbox"> HITL context review</label>
-                <label class="switch"><input id="finalApproval" type="checkbox"> HITL final approval</label>
-              </div>
+              <details class="composer-options" id="composerOptions" open>
+                <summary>Retrieval settings</summary>
+                <div class="control-grid">
+                  <label>Retrieval mode
+                    <select id="retrievalMode">
+                      <option value="hybrid">Hybrid</option>
+                      <option value="bm25">BM25</option>
+                      <option value="hierarchical">Hierarchical</option>
+                    </select>
+                  </label>
+                  <label>Top K
+                    <input id="topK" type="number" min="1" max="10" value="5">
+                  </label>
+                </div>
+                <div class="switch-row">
+                  <label class="switch"><input id="useGeneration" type="checkbox" checked> Model synthesis</label>
+                  <label class="switch"><input id="useReranking" type="checkbox" checked> Reranking</label>
+                  <label class="switch"><input id="selfRag" type="checkbox" checked> Self-RAG</label>
+                  <label class="switch"><input id="useWikipedia" type="checkbox" checked> Wikipedia text</label>
+                  <label class="switch"><input id="sentenceAttention" type="checkbox" checked> Sentence attention</label>
+                  <label class="switch"><input id="contextReview" type="checkbox"> HITL context review</label>
+                  <label class="switch"><input id="finalApproval" type="checkbox"> HITL final approval</label>
+                </div>
+              </details>
               <div class="actions">
                 <button class="primary" id="askButton" type="submit"><span id="askButtonText">Send Message</span></button>
                 <button class="secondary" id="clearButton" type="button">Clear Composer</button>
@@ -2347,32 +2741,32 @@ APP_HTML = """<!doctype html>
           </section>
 
           <section class="insight-stack">
-            <section class="panel pad">
-              <h2>Agenda Summary</h2>
+            <details class="panel pad insight-panel" open>
+              <summary>Agenda Summary</summary>
               <p id="agendaSummary" class="agenda-text empty">The session agenda will build from your prompts.</p>
-            </section>
-            <section class="panel pad">
-              <h2>Suggested Next Questions</h2>
+            </details>
+            <details class="panel pad insight-panel" open>
+              <summary>Suggested Next Questions</summary>
               <div id="suggestions" class="suggestion-list">
                 <p class="empty">Suggestions appear after an answer.</p>
               </div>
-            </section>
-            <section class="panel pad">
-              <h2>Run Metadata</h2>
+            </details>
+            <details class="panel pad insight-panel" open>
+              <summary>Run Metadata</summary>
               <div id="runMetadata" class="badge-row"><span class="badge">No run yet</span></div>
-            </section>
-            <section class="panel pad">
-              <h2>Citations</h2>
+            </details>
+            <details class="panel pad insight-panel" open>
+              <summary>Citations</summary>
               <div id="citations" class="list"></div>
-            </section>
-            <section class="panel pad">
-              <h2>Guardrails</h2>
+            </details>
+            <details class="panel pad insight-panel" open>
+              <summary>Guardrails</summary>
               <div id="guardrails" class="list"></div>
-            </section>
-            <section class="panel pad">
-              <h2>Source Snippets</h2>
+            </details>
+            <details class="panel pad insight-panel" open>
+              <summary>Source Snippets</summary>
               <div id="sourceSnippets" class="list"></div>
-            </section>
+            </details>
           </section>
         </div>
         <section class="panel pad">
@@ -2433,7 +2827,7 @@ APP_HTML = """<!doctype html>
         <section class="panel pad">
           <div class="conversation-head">
             <div>
-          <span class="eyebrow">Evaluation &amp; Diagnostics</span>
+              <span class="eyebrow">Evaluation &amp; Diagnostics</span>
               <h2>Runtime Health And Retrieval Quality</h2>
             </div>
             <div class="badge-row" id="diagnosticBadges"><span class="badge">Ready</span></div>
@@ -2464,7 +2858,8 @@ APP_HTML = """<!doctype html>
       sessions: [],
       activeSessionId: null,
       activeSession: null,
-      isGenerating: false
+      isGenerating: false,
+      responsiveReady: false
     };
     const LOCAL_CHAT_KEY = "agentic_rag_chats_v1";
     const $ = (selector) => document.querySelector(selector);
@@ -2551,6 +2946,50 @@ APP_HTML = """<!doctype html>
       }).format(date);
     }
 
+    function isCompactLayout() {
+      return window.matchMedia && window.matchMedia("(max-width: 1024px)").matches;
+    }
+
+    function updateMobileHeader(statusText = "") {
+      const title = $("#currentSessionName") ? $("#currentSessionName").textContent.trim() : "New RAG conversation";
+      $("#mobileSessionName").textContent = title || "New RAG conversation";
+      if (statusText) {
+        $("#mobileStatusBadge").textContent = statusText;
+      } else if (state.isGenerating) {
+        $("#mobileStatusBadge").textContent = "Generating";
+      } else if (state.activeSessionId) {
+        $("#mobileStatusBadge").textContent = "Saved";
+      } else {
+        $("#mobileStatusBadge").textContent = "Ready";
+      }
+      $("#mobileStatusBadge").classList.toggle("warn", state.isGenerating);
+      $("#mobileStatusBadge").classList.toggle("good", !state.isGenerating);
+    }
+
+    function openDrawer() {
+      document.body.classList.add("drawer-open");
+      $("#drawerToggle").setAttribute("aria-expanded", "true");
+    }
+
+    function closeDrawer() {
+      document.body.classList.remove("drawer-open");
+      $("#drawerToggle").setAttribute("aria-expanded", "false");
+    }
+
+    function syncResponsivePanels() {
+      const compact = isCompactLayout();
+      const options = $("#composerOptions");
+      if (options && !options.dataset.touched) options.open = !compact;
+      $$(".insight-panel").forEach((panel, index) => {
+        if (!panel.dataset.touched) panel.open = !compact || index < 2;
+      });
+      $$(".citation-card").forEach((panel) => {
+        panel.open = !compact;
+      });
+      if (!compact) closeDrawer();
+      updateMobileHeader();
+    }
+
     function bindPromptButtons() {
       $$(".empty-prompt, .suggestion-button").forEach((button) => {
         button.addEventListener("click", () => {
@@ -2576,13 +3015,16 @@ APP_HTML = """<!doctype html>
       bindPromptButtons();
     }
 
+    function activateTab(button) {
+      $$(".tab").forEach((item) => item.classList.remove("active"));
+      $$(".section").forEach((item) => item.classList.remove("active"));
+      button.classList.add("active");
+      document.getElementById(button.dataset.tab).classList.add("active");
+      closeDrawer();
+    }
+
     $$(".tab").forEach((button) => {
-      button.addEventListener("click", () => {
-        $$(".tab").forEach((item) => item.classList.remove("active"));
-        $$(".section").forEach((item) => item.classList.remove("active"));
-        button.classList.add("active");
-        document.getElementById(button.dataset.tab).classList.add("active");
-      });
+      button.addEventListener("click", () => activateTab(button));
     });
 
     function payloadFromForm() {
@@ -2618,6 +3060,7 @@ APP_HTML = """<!doctype html>
       $("#composerStatus").textContent = isGenerating
         ? "Retrieving sources and composing the answer..."
         : "";
+      updateMobileHeader(isGenerating ? "Generating" : "");
     }
 
     function appendPendingTurn(message) {
@@ -2730,9 +3173,16 @@ APP_HTML = """<!doctype html>
     async function loadSource(path) {
       const response = await fetch(`/api/source?path=${encodeURIComponent(path)}`);
       const payload = await response.json();
+      const chunks = (payload.chunks || []).slice(0, 10).map((chunk) => `
+        <article class="item">
+          <header><span>Chunk ${chunk.ordinal + 1}</span><span>${escapeHtml(chunk.strategy)}</span></header>
+          <p>${escapeHtml(chunk.text || "")}</p>
+        </article>
+      `).join("");
       $("#sourceViewer").innerHTML = `
-        <header><span>${escapeHtml(payload.path)}</span><span>${payload.chunks.length} chunks</span></header>
+        <header><span>${escapeHtml(payload.path)}</span><span>${(payload.chunks || []).length} chunks</span></header>
         <pre>${escapeHtml(payload.text)}</pre>
+        <div class="attention">${chunks}</div>
       `;
     }
 
@@ -2794,7 +3244,10 @@ APP_HTML = """<!doctype html>
         </button>
       `).join("");
       $$("#sessionList .session-card").forEach((button) => {
-        button.addEventListener("click", () => loadSession(button.dataset.session));
+        button.addEventListener("click", () => {
+          closeDrawer();
+          loadSession(button.dataset.session);
+        });
       });
     }
 
@@ -2818,6 +3271,7 @@ APP_HTML = """<!doctype html>
       state.activeSessionId = session ? session.session_id : null;
       if (session) saveLocalSession(session);
       $("#currentSessionName").textContent = session ? session.session_name : "New RAG conversation";
+      updateMobileHeader();
       $("#agendaSummary").textContent = session && session.user_agenda
         ? session.user_agenda
         : "The session agenda will build from your prompts.";
@@ -2867,14 +3321,14 @@ APP_HTML = """<!doctype html>
           meta.wikipedia_count ? badge(`${meta.wikipedia_count} wiki`, "good") : ""
         ].join("");
         const citationCards = (turn.citations || []).slice(0, 4).map((citation) => `
-          <article class="item">
-            <header>
+          <details class="item citation-card" open>
+            <summary>
               <span>${escapeHtml(citation.page_title || citation.file_name || "Source")}</span>
               <span>${escapeHtml(citation.source_type || "local")}</span>
-            </header>
+            </summary>
             <p>${escapeHtml(citation.snippet || "")}</p>
             ${citation.source_url ? `<p><a href="${escapeHtml(citation.source_url)}" target="_blank" rel="noreferrer">${escapeHtml(citation.source_url)}</a></p>` : ""}
-          </article>
+          </details>
         `).join("");
         return `
           <article class="message-row user">
@@ -2891,6 +3345,7 @@ APP_HTML = """<!doctype html>
       }).join("");
       const messageList = $("#messages");
       messageList.scrollTop = messageList.scrollHeight;
+      syncResponsivePanels();
     }
 
     function renderRunMetadata(metadata) {
@@ -2933,6 +3388,7 @@ APP_HTML = """<!doctype html>
       };
       saveLocalSession(state.activeSession);
       $("#currentSessionName").textContent = state.activeSession.session_name;
+      updateMobileHeader("Saved");
       $("#agendaSummary").textContent = payload.agenda_summary || "The session agenda will build from your prompts.";
       $("#agendaSummary").classList.toggle("empty", !payload.agenda_summary);
       renderSessionMessages(payload.history || []);
@@ -2956,44 +3412,47 @@ APP_HTML = """<!doctype html>
       renderCitations(payload.citations || []);
       renderSourceSnippets(payload.retrieved_chunks || []);
       $("#retrievedChunks").innerHTML = payload.retrieved_chunks.map((chunk) => `
-        <article class="item">
-          <header><span>${chunk.rank}. ${escapeHtml(chunk.page_title || chunk.file_name)}</span><span>${escapeHtml(chunk.source_type || "local")} | ${escapeHtml(chunk.source)} | ${chunk.score}</span></header>
+        <details class="item citation-card" open>
+          <summary><span>${chunk.rank}. ${escapeHtml(chunk.page_title || chunk.file_name)}</span><span>${escapeHtml(chunk.source_type || "local")} | ${escapeHtml(chunk.source)} | ${chunk.score}</span></summary>
           <p>${escapeHtml(chunk.text)}</p>
           ${chunk.source_url ? `<p><a href="${escapeHtml(chunk.source_url)}" target="_blank" rel="noreferrer">${escapeHtml(chunk.source_url)}</a></p>` : ""}
-        </article>
+        </details>
       `).join("") || empty("No retrieved chunks returned.");
       renderGuardrails(payload.guardrails);
       renderFlow(payload.pipeline);
       renderCheckpoints(payload.checkpoints);
       $("#reflection").textContent = payload.reflection;
       renderSessionList();
+      syncResponsivePanels();
     }
 
     function renderCitations(citations) {
       $("#citations").innerHTML = citations.map((citation) => `
-        <article class="item">
-          <header>
+        <details class="item citation-card" open>
+          <summary>
             <span>${citation.rank}. ${escapeHtml(citation.page_title || citation.file_name)}</span>
             <span>${escapeHtml(citation.source_type || "local")} | ${citation.score}</span>
-          </header>
+          </summary>
           <p>${escapeHtml(citation.snippet || "")}</p>
           ${citation.source_url ? `<p><a href="${escapeHtml(citation.source_url)}" target="_blank" rel="noreferrer">${escapeHtml(citation.source_url)}</a></p>` : ""}
           <div class="attention">${(citation.sentence_attention || []).map((item) => `<div>${item.score}: ${escapeHtml(item.sentence)}</div>`).join("")}</div>
-        </article>
+        </details>
       `).join("") || empty("No citations returned.");
+      syncResponsivePanels();
     }
 
     function renderSourceSnippets(snippets) {
       $("#sourceSnippets").innerHTML = snippets.map((item) => {
         const text = item.snippet || item.text || "";
         return `
-          <article class="item">
-            <header><span>${item.rank}. ${escapeHtml(item.page_title || item.file_name)}</span><span>${escapeHtml(item.source_type || item.source || item.path || "")}</span></header>
+          <details class="item citation-card" open>
+            <summary><span>${item.rank}. ${escapeHtml(item.page_title || item.file_name)}</span><span>${escapeHtml(item.source_type || item.source || item.path || "")}</span></summary>
             <p class="source-snippet">${escapeHtml(text)}</p>
             ${item.source_url ? `<p><a href="${escapeHtml(item.source_url)}" target="_blank" rel="noreferrer">${escapeHtml(item.source_url)}</a></p>` : ""}
-          </article>
+          </details>
         `;
       }).join("") || empty("Source snippets appear after retrieval.");
+      syncResponsivePanels();
     }
 
     function renderGuardrails(guardrails) {
@@ -3076,6 +3535,7 @@ APP_HTML = """<!doctype html>
     });
 
     $("#newSessionButton").addEventListener("click", () => {
+      closeDrawer();
       renderSession(null);
       renderSessionList();
       $("#question").value = "";
@@ -3117,16 +3577,16 @@ APP_HTML = """<!doctype html>
         $("#evalSummary").innerHTML = Object.entries(payload.summary)
           .map(([key, value]) => badge(`${key}: ${value}`)).join("");
         $("#evalRows").innerHTML = `
-          <table class="table">
+          <table class="table responsive-table">
             <thead><tr><th>Sample</th><th>Answer F1</th><th>Context Recall</th><th>Citation Hit Rate</th><th>Confidence</th></tr></thead>
             <tbody>
               ${payload.rows.map((row) => `
                 <tr>
-                  <td>${escapeHtml(row.sample_id)}</td>
-                  <td>${row.answer_f1}</td>
-                  <td>${row.context_recall}</td>
-                  <td>${row.citation_hit_rate}</td>
-                  <td>${row.confidence}</td>
+                  <td data-label="Sample">${escapeHtml(row.sample_id)}</td>
+                  <td data-label="Answer F1">${row.answer_f1}</td>
+                  <td data-label="Context Recall">${row.context_recall}</td>
+                  <td data-label="Citation Hit Rate">${row.citation_hit_rate}</td>
+                  <td data-label="Confidence">${row.confidence}</td>
                 </tr>
               `).join("")}
             </tbody>
@@ -3136,6 +3596,22 @@ APP_HTML = """<!doctype html>
         $("#runEval").disabled = false;
       }
     });
+
+    $("#drawerToggle").addEventListener("click", openDrawer);
+    $("#drawerClose").addEventListener("click", closeDrawer);
+    $("#drawerOverlay").addEventListener("click", closeDrawer);
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") closeDrawer();
+    });
+    document.addEventListener("toggle", (event) => {
+      if (!state.responsiveReady) return;
+      if (event.target.matches(".insight-panel, .composer-options")) {
+        event.target.dataset.touched = "true";
+      }
+    }, true);
+    window.addEventListener("resize", syncResponsivePanels);
+    syncResponsivePanels();
+    state.responsiveReady = true;
 
     loadRuntime().catch((error) => {
       $("#badges").innerHTML = badge(error.message, "bad");
