@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&amp;family=JetBrains+Mono:wght@500&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "tertiary-fixed": "#6bff8f",
+                        "outline": "#88929b",
+                        "surface-container-high": "#1c2b3c",
+                        "on-secondary-container": "#b0b2ff",
+                        "on-primary-container": "#003751",
+                        "on-error": "#690005",
+                        "inverse-surface": "#d4e4fa",
+                        "surface-dim": "#051424",
+                        "on-surface": "#d4e4fa",
+                        "error": "#ffb4ab",
+                        "on-secondary": "#1000a9",
+                        "surface-container-low": "#0d1c2d",
+                        "on-primary": "#00344d",
+                        "on-primary-fixed-variant": "#004c6e",
+                        "on-error-container": "#ffdad6",
+                        "on-secondary-fixed": "#07006c",
+                        "error-container": "#93000a",
+                        "tertiary": "#4ae176",
+                        "on-tertiary-fixed-variant": "#005321",
+                        "on-tertiary": "#003915",
+                        "primary-container": "#0ea5e9",
+                        "on-tertiary-fixed": "#002109",
+                        "background": "#051424",
+                        "surface-variant": "#273647",
+                        "surface-container": "#122131",
+                        "primary-fixed": "#c9e6ff",
+                        "surface": "#051424",
+                        "inverse-primary": "#006591",
+                        "secondary-fixed-dim": "#c0c1ff",
+                        "tertiary-fixed-dim": "#4ae176",
+                        "secondary-container": "#3131c0",
+                        "on-surface-variant": "#bec8d2",
+                        "outline-variant": "#3e4850",
+                        "on-primary-fixed": "#001e2f",
+                        "on-secondary-fixed-variant": "#2f2ebe",
+                        "primary": "#89ceff",
+                        "inverse-on-surface": "#233143",
+                        "on-background": "#d4e4fa",
+                        "primary-fixed-dim": "#89ceff",
+                        "surface-bright": "#2c3a4c",
+                        "secondary": "#c0c1ff",
+                        "on-tertiary-container": "#003c16",
+                        "surface-container-lowest": "#010f1f",
+                        "secondary-fixed": "#e1e0ff",
+                        "surface-tint": "#89ceff",
+                        "tertiary-container": "#00b351",
+                        "surface-container-highest": "#273647"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "gutter": "16px",
+                        "container-max": "1440px",
+                        "margin-mobile": "16px",
+                        "margin-desktop": "32px",
+                        "unit": "8px"
+                    },
+                    "fontFamily": {
+                        "body-md": ["Inter"],
+                        "display-lg-mobile": ["Inter"],
+                        "headline-sm": ["Inter"],
+                        "body-lg": ["Inter"],
+                        "caption": ["Inter"],
+                        "headline-md": ["Inter"],
+                        "display-lg": ["Inter"],
+                        "label-mono": ["JetBrains Mono"]
+                    },
+                    "fontSize": {
+                        "body-md": ["14px", {"lineHeight": "20px", "fontWeight": "400"}],
+                        "display-lg-mobile": ["28px", {"lineHeight": "36px", "fontWeight": "700"}],
+                        "headline-sm": ["20px", {"lineHeight": "28px", "fontWeight": "600"}],
+                        "body-lg": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                        "caption": ["12px", {"lineHeight": "16px", "fontWeight": "500"}],
+                        "headline-md": ["24px", {"lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600"}],
+                        "display-lg": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                        "label-mono": ["12px", {"lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "500"}]
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .pipeline-flow-path {
+            background: linear-gradient(90deg, transparent, #89ceff 50%, transparent);
+            background-size: 200% 100%;
+        }
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 4px;
+            height: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #3e4850;
+            border-radius: 10px;
+        }
+    </style>
+</head>
+<body class="bg-surface text-on-surface font-body-md min-h-screen flex flex-col md:flex-row antialiased">
+<!-- SideNavBar -->
+<aside class="docked left-0 h-screen w-72 flex flex-col p-gutter bg-surface-container-low border-r border-outline-variant hidden md:flex shrink-0">
+<div class="mb-10">
+<div class="flex items-center gap-3 mb-1">
+<div class="w-8 h-8 bg-primary rounded flex items-center justify-center text-on-primary shadow-[0_0_12px_rgba(137,206,255,0.3)]">
+<span class="material-symbols-outlined text-[20px]" data-icon="memory">memory</span>
+</div>
+<h1 class="text-headline-sm font-bold text-primary">Agentic RAG</h1>
+</div>
+<p class="text-label-mono text-on-surface-variant uppercase tracking-widest text-[10px]">Precision Intelligence</p>
+</div>
+<button class="w-full py-3 px-4 mb-8 bg-primary text-on-primary rounded-lg font-bold flex items-center justify-center gap-2 hover:brightness-110 transition-all active:scale-[0.98] duration-100">
+<span class="material-symbols-outlined text-[20px]" data-icon="add">add</span>
+        New Chat
+    </button>
+<nav class="flex-1 space-y-1">
+<a class="flex items-center gap-3 px-4 py-3 rounded-lg text-on-surface-variant hover:bg-surface-variant/50 transition-colors" href="#">
+<span class="material-symbols-outlined text-[22px]" data-icon="search">search</span>
+<span class="text-label-mono uppercase tracking-wider">Search</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-lg text-on-surface-variant hover:bg-surface-variant/50 transition-colors" href="#">
+<span class="material-symbols-outlined text-[22px]" data-icon="history">history</span>
+<span class="text-label-mono uppercase tracking-wider">Chat History</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-lg text-primary font-bold bg-surface-container-high border-r-2 border-primary" href="#">
+<span class="material-symbols-outlined text-[22px]" data-icon="database">database</span>
+<span class="text-label-mono uppercase tracking-wider">Knowledge Base</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-lg text-on-surface-variant hover:bg-surface-variant/50 transition-colors" href="#">
+<span class="material-symbols-outlined text-[22px]" data-icon="settings">settings</span>
+<span class="text-label-mono uppercase tracking-wider">Settings</span>
+</a>
+</nav>
+<div class="mt-auto pt-8 border-t border-outline-variant/30">
+<a class="flex items-center gap-3 px-4 py-2 text-on-surface-variant hover:text-primary transition-colors" href="#">
+<span class="material-symbols-outlined text-[18px]" data-icon="description">description</span>
+<span class="text-label-mono text-[11px] uppercase tracking-tighter">Documentation</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-2 text-on-surface-variant hover:text-primary transition-colors" href="#">
+<span class="material-symbols-outlined text-[18px]" data-icon="help">help</span>
+<span class="text-label-mono text-[11px] uppercase tracking-tighter">Support</span>
+</a>
+</div>
+</aside>
+<main class="flex-1 flex flex-col min-w-0 h-screen overflow-y-auto custom-scrollbar">
+<!-- TopAppBar -->
+<header class="flex justify-between items-center w-full px-margin-desktop h-16 shrink-0 bg-surface/80 backdrop-blur-md border-b border-outline-variant sticky top-0 z-50">
+<div class="flex items-center gap-8">
+<h2 class="text-headline-sm font-black text-on-surface">Agentic RAG</h2>
+<nav class="hidden md:flex gap-6">
+<a class="text-on-surface-variant hover:text-primary transition-all text-body-md font-medium" href="#">Hybrid</a>
+<a class="text-on-surface-variant hover:text-primary transition-all text-body-md font-medium" href="#">Sources</a>
+<a class="text-primary border-b-2 border-primary pb-1 text-body-md font-semibold" href="#">Generation</a>
+</nav>
+</div>
+<div class="flex items-center gap-4">
+<button class="px-4 py-1.5 rounded-full border border-outline-variant text-caption text-on-surface-variant hover:bg-surface-variant transition-colors font-medium">Technical Insights</button>
+<div class="flex items-center gap-2 text-on-surface-variant">
+<button class="p-2 hover:bg-surface-variant rounded-full transition-all"><span class="material-symbols-outlined text-[20px]" data-icon="tune">tune</span></button>
+<button class="p-2 hover:bg-surface-variant rounded-full transition-all relative">
+<span class="material-symbols-outlined text-[20px]" data-icon="notifications">notifications</span>
+<span class="absolute top-2 right-2 w-2 h-2 bg-primary rounded-full border border-surface"></span>
+</button>
+<div class="w-8 h-8 rounded-full bg-surface-variant flex items-center justify-center ml-2 border border-outline-variant cursor-pointer">
+<span class="material-symbols-outlined text-[20px]" data-icon="person">person</span>
+</div>
+</div>
+</div>
+</header>
+<!-- Dashboard Canvas -->
+<div class="p-margin-desktop space-y-gutter max-w-container-max mx-auto w-full">
+<!-- Page Header -->
+<div class="flex flex-col md:flex-row md:justify-between md:items-end gap-4">
+<div>
+<h3 class="text-display-lg font-display-lg text-on-surface">Evaluation &amp; Diagnostics</h3>
+<p class="text-on-surface-variant mt-1 text-body-md">Real-time telemetry and pipeline health orchestration.</p>
+</div>
+<div class="flex items-center gap-2 px-4 py-2 bg-surface-container-low rounded-lg border border-outline-variant">
+<div class="relative flex h-3 w-3">
+<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-tertiary opacity-75"></span>
+<span class="relative inline-flex rounded-full h-3 w-3 bg-tertiary"></span>
+</div>
+<span class="text-label-mono font-bold text-tertiary text-[11px] tracking-widest">SYSTEM LIVE</span>
+</div>
+</div>
+<!-- Bento Grid Metrics -->
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-gutter">
+<!-- Retrieval Quality -->
+<div class="bg-surface-container-low border border-outline-variant p-6 rounded-xl relative overflow-hidden group hover:border-primary/50 transition-colors">
+<div class="flex justify-between items-start mb-4">
+<span class="text-label-mono text-outline uppercase text-[10px] tracking-widest font-bold">Retrieval Quality</span>
+<span class="material-symbols-outlined text-primary/50 group-hover:text-primary transition-colors" data-icon="analytics">analytics</span>
+</div>
+<div class="flex items-baseline gap-2">
+<span class="text-[40px] font-bold text-on-surface tracking-tight">92.4<span class="text-[20px] text-primary/70">%</span></span>
+<span class="text-tertiary text-caption font-bold flex items-center bg-tertiary/10 px-1.5 rounded-sm">
+<span class="material-symbols-outlined text-[14px] mr-0.5" data-icon="arrow_upward">arrow_upward</span> 2.4%
+                    </span>
+</div>
+<div class="mt-6 h-1 w-full bg-surface-variant rounded-full overflow-hidden">
+<div class="h-full bg-primary shadow-[0_0_8px_rgba(137,206,255,0.6)]" style="width: 92%"></div>
+</div>
+<p class="mt-4 text-caption text-on-surface-variant leading-relaxed">Top-K relevance score across 1.2k indexed queries.</p>
+</div>
+<!-- Citation Coverage -->
+<div class="bg-surface-container-low border border-outline-variant p-6 rounded-xl group hover:border-secondary/50 transition-colors">
+<div class="flex justify-between items-start mb-4">
+<span class="text-label-mono text-outline uppercase text-[10px] tracking-widest font-bold">Citation Coverage</span>
+<span class="material-symbols-outlined text-secondary/50 group-hover:text-secondary transition-colors" data-icon="menu_book">menu_book</span>
+</div>
+<div class="flex items-baseline gap-2">
+<span class="text-[40px] font-bold text-on-surface tracking-tight">88.1<span class="text-[20px] text-secondary/70">%</span></span>
+<span class="text-error text-caption font-bold flex items-center bg-error/10 px-1.5 rounded-sm">
+<span class="material-symbols-outlined text-[14px] mr-0.5" data-icon="arrow_downward">arrow_downward</span> 0.5%
+                    </span>
+</div>
+<div class="mt-6 h-1 w-full bg-surface-variant rounded-full overflow-hidden">
+<div class="h-full bg-secondary shadow-[0_0_8px_rgba(192,193,255,0.6)]" style="width: 88%"></div>
+</div>
+<p class="mt-4 text-caption text-on-surface-variant leading-relaxed">Verified claims successfully matched to source chunks.</p>
+</div>
+<!-- Guardrail Pass Rate -->
+<div class="bg-surface-container-low border border-outline-variant p-6 rounded-xl group hover:border-tertiary/50 transition-colors">
+<div class="flex justify-between items-start mb-4">
+<span class="text-label-mono text-outline uppercase text-[10px] tracking-widest font-bold">Guardrail Pass Rate</span>
+<span class="material-symbols-outlined text-tertiary/50 group-hover:text-tertiary transition-colors" data-icon="shield">shield</span>
+</div>
+<div class="flex items-baseline gap-2">
+<span class="text-[40px] font-bold text-on-surface tracking-tight">100<span class="text-[20px] text-tertiary/70">%</span></span>
+<span class="text-tertiary text-caption font-bold flex items-center bg-tertiary/10 px-1.5 rounded-sm">STABLE</span>
+</div>
+<div class="mt-6 h-1 w-full bg-surface-variant rounded-full overflow-hidden">
+<div class="h-full bg-tertiary shadow-[0_0_8px_rgba(74,225,118,0.6)]" style="width: 100%"></div>
+</div>
+<p class="mt-4 text-caption text-on-surface-variant leading-relaxed">Zero toxicity or PII leakage detected this session.</p>
+</div>
+<!-- Confidence Trends -->
+<div class="bg-surface-container-low border border-outline-variant p-6 rounded-xl flex flex-col group hover:border-primary/50 transition-colors">
+<div class="flex justify-between items-start mb-2">
+<span class="text-label-mono text-outline uppercase text-[10px] tracking-widest font-bold">Confidence Trend</span>
+</div>
+<div class="flex-1 flex items-end gap-[3px] pt-4">
+<div class="bg-primary/20 hover:bg-primary/50 transition-all w-full rounded-t-sm h-[40%]"></div>
+<div class="bg-primary/20 hover:bg-primary/50 transition-all w-full rounded-t-sm h-[60%]"></div>
+<div class="bg-primary/20 hover:bg-primary/50 transition-all w-full rounded-t-sm h-[55%]"></div>
+<div class="bg-primary/20 hover:bg-primary/50 transition-all w-full rounded-t-sm h-[80%]"></div>
+<div class="bg-primary/20 hover:bg-primary/50 transition-all w-full rounded-t-sm h-[75%]"></div>
+<div class="bg-primary w-full rounded-t-sm h-[95%] shadow-[0_0_10px_rgba(137,206,255,0.4)]"></div>
+<div class="bg-primary/20 hover:bg-primary/50 transition-all w-full rounded-t-sm h-[85%]"></div>
+</div>
+<div class="flex justify-between mt-3">
+<span class="text-[10px] font-label-mono text-outline/60 uppercase">T-12H</span>
+<span class="text-[10px] font-label-mono text-primary uppercase font-bold tracking-wider">Now</span>
+</div>
+</div>
+</div>
+<!-- Pipeline Visualization -->
+<div class="bg-surface-container border border-outline-variant rounded-xl p-8 shadow-sm">
+<div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-12">
+<div>
+<h4 class="text-headline-sm font-bold">RAG Pipeline Orchestration</h4>
+<p class="text-body-md text-on-surface-variant">Tracing the execution lifecycle from query to response.</p>
+</div>
+<div class="flex gap-6 border border-outline-variant/30 px-4 py-2 rounded-lg bg-surface-container-low">
+<div class="flex items-center gap-2">
+<span class="w-2.5 h-2.5 bg-primary rounded-full shadow-[0_0_6px_rgba(137,206,255,0.8)]"></span>
+<span class="text-caption font-bold text-on-surface uppercase tracking-tighter">Completed</span>
+</div>
+<div class="flex items-center gap-2">
+<span class="w-2.5 h-2.5 border-2 border-outline-variant rounded-full"></span>
+<span class="text-caption font-medium text-on-surface-variant uppercase tracking-tighter">Inactive</span>
+</div>
+</div>
+</div>
+<div class="relative overflow-x-auto pb-6 custom-scrollbar">
+<div class="flex items-center justify-between min-w-[1100px] px-4">
+<!-- Step Component Factory -->
+<div class="flex flex-col items-center gap-4 relative z-10 w-28 group">
+<div class="w-14 h-14 rounded-2xl bg-primary-container/20 border-2 border-primary flex items-center justify-center text-primary group-hover:scale-110 transition-transform duration-300 shadow-[0_0_15px_rgba(137,206,255,0.1)]">
+<span class="material-symbols-outlined text-[28px]" data-icon="question_answer">question_answer</span>
+</div>
+<span class="text-label-mono text-[10px] text-center font-bold uppercase tracking-wider text-on-surface-variant">Query</span>
+</div>
+<div class="flex-1 px-2">
+<div class="h-[1.5px] bg-primary relative">
+<div class="absolute inset-0 bg-gradient-to-r from-primary to-primary animate-pulse opacity-50"></div>
+</div>
+</div>
+<div class="flex flex-col items-center gap-4 relative z-10 w-28 group">
+<div class="w-14 h-14 rounded-2xl bg-primary-container/20 border-2 border-primary flex items-center justify-center text-primary group-hover:scale-110 transition-transform duration-300">
+<span class="material-symbols-outlined text-[28px]" data-icon="psychology">psychology</span>
+</div>
+<span class="text-label-mono text-[10px] text-center font-bold uppercase tracking-wider text-on-surface-variant">Intent</span>
+</div>
+<div class="flex-1 px-2">
+<div class="h-[1.5px] bg-primary"></div>
+</div>
+<div class="flex flex-col items-center gap-4 relative z-10 w-28 group">
+<div class="w-14 h-14 rounded-2xl bg-primary-container/20 border-2 border-primary flex items-center justify-center text-primary group-hover:scale-110 transition-transform duration-300">
+<span class="material-symbols-outlined text-[28px]" data-icon="storage">storage</span>
+</div>
+<span class="text-label-mono text-[10px] text-center font-bold uppercase tracking-wider text-on-surface-variant">Vector DB</span>
+</div>
+<div class="flex-1 px-2">
+<div class="h-[1.5px] bg-primary"></div>
+</div>
+<div class="flex flex-col items-center gap-4 relative z-10 w-28 group">
+<div class="w-14 h-14 rounded-2xl bg-primary-container/20 border-2 border-primary flex items-center justify-center text-primary group-hover:scale-110 transition-transform duration-300">
+<span class="material-symbols-outlined text-[28px]" data-icon="public">public</span>
+</div>
+<span class="text-label-mono text-[10px] text-center font-bold uppercase tracking-wider text-on-surface-variant">Web</span>
+</div>
+<div class="flex-1 px-2">
+<div class="h-[1.5px] bg-primary"></div>
+</div>
+<div class="flex flex-col items-center gap-4 relative z-10 w-28 group">
+<div class="w-14 h-14 rounded-2xl bg-primary-container/20 border-2 border-primary flex items-center justify-center text-primary group-hover:scale-110 transition-transform duration-300">
+<span class="material-symbols-outlined text-[28px]" data-icon="low_priority">low_priority</span>
+</div>
+<span class="text-label-mono text-[10px] text-center font-bold uppercase tracking-wider text-on-surface-variant">Reranker</span>
+</div>
+<div class="flex-1 px-2">
+<div class="h-[1.5px] bg-primary/50 border-t border-dashed border-primary"></div>
+</div>
+<div class="flex flex-col items-center gap-4 relative z-10 w-28 group">
+<div class="w-14 h-14 rounded-2xl bg-surface-container-high border-2 border-outline-variant flex items-center justify-center text-on-surface-variant group-hover:scale-110 transition-transform duration-300 opacity-60">
+<span class="material-symbols-outlined text-[28px]" data-icon="auto_awesome">auto_awesome</span>
+</div>
+<span class="text-label-mono text-[10px] text-center font-bold uppercase tracking-wider text-outline">Self-RAG</span>
+</div>
+<div class="flex-1 px-2">
+<div class="h-[1.5px] bg-outline-variant/30"></div>
+</div>
+<div class="flex flex-col items-center gap-4 relative z-10 w-28 group">
+<div class="w-14 h-14 rounded-2xl bg-tertiary-container/10 border-2 border-tertiary/50 flex items-center justify-center text-tertiary group-hover:scale-110 transition-transform duration-300">
+<span class="material-symbols-outlined text-[28px]" data-icon="verified_user">verified_user</span>
+</div>
+<span class="text-label-mono text-[10px] text-center font-bold uppercase tracking-wider text-tertiary">Guard</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Lower Detail Panels -->
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-gutter">
+<!-- Source Node Performance -->
+<div class="bg-surface-container-low border border-outline-variant rounded-xl overflow-hidden flex flex-col shadow-sm">
+<div class="p-6 border-b border-outline-variant flex justify-between items-center bg-surface-container-low/50">
+<h5 class="font-bold text-body-lg flex items-center gap-2">
+<span class="material-symbols-outlined text-primary text-[20px]" data-icon="timer">timer</span>
+                        Knowledge Source Latency
+                    </h5>
+<button class="text-primary text-caption font-bold uppercase tracking-wider hover:underline">Full Logs</button>
+</div>
+<div class="p-6 space-y-6 flex-1">
+<div class="space-y-2">
+<div class="flex justify-between text-caption font-bold uppercase text-on-surface-variant">
+<span class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[16px]" data-icon="folder_zip">folder_zip</span>
+                                Enterprise PDF Cluster
+                            </span>
+<span class="text-tertiary">240ms</span>
+</div>
+<div class="w-full h-2 bg-surface-variant rounded-full overflow-hidden">
+<div class="h-full bg-primary" style="width: 45%"></div>
+</div>
+</div>
+<div class="space-y-2">
+<div class="flex justify-between text-caption font-bold uppercase text-on-surface-variant">
+<span class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[16px]" data-icon="language">language</span>
+                                Wikipedia API (Live)
+                            </span>
+<span class="text-error">850ms</span>
+</div>
+<div class="w-full h-2 bg-surface-variant rounded-full overflow-hidden">
+<div class="h-full bg-error/60" style="width: 85%"></div>
+</div>
+</div>
+<div class="space-y-2">
+<div class="flex justify-between text-caption font-bold uppercase text-on-surface-variant">
+<span class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[16px]" data-icon="table_chart">table_chart</span>
+                                Vector SQL Store
+                            </span>
+<span class="text-tertiary">110ms</span>
+</div>
+<div class="w-full h-2 bg-surface-variant rounded-full overflow-hidden">
+<div class="h-full bg-primary" style="width: 25%"></div>
+</div>
+</div>
+</div>
+</div>
+<!-- Recent Pipeline Traces -->
+<div class="bg-surface-container-low border border-outline-variant rounded-xl overflow-hidden flex flex-col shadow-sm">
+<div class="p-6 border-b border-outline-variant flex justify-between items-center bg-surface-container-low/50">
+<h5 class="font-bold text-body-lg flex items-center gap-2">
+<span class="material-symbols-outlined text-primary text-[20px]" data-icon="list_alt">list_alt</span>
+                        Active Traces
+                    </h5>
+<div class="flex items-center gap-2 px-2 py-0.5 bg-tertiary/10 rounded border border-tertiary/20">
+<span class="w-1.5 h-1.5 bg-tertiary rounded-full animate-pulse"></span>
+<span class="text-[10px] text-tertiary uppercase font-label-mono font-bold">Live Stream</span>
+</div>
+</div>
+<div class="divide-y divide-outline-variant/30 flex-1 overflow-y-auto custom-scrollbar">
+<div class="p-4 hover:bg-surface-variant/20 transition-all cursor-pointer flex items-center justify-between group">
+<div class="flex gap-4 items-center min-w-0">
+<span class="text-label-mono text-outline font-bold text-[11px] shrink-0">#8821</span>
+<span class="text-body-md truncate font-medium">Explain quarterly revenue drift pattern...</span>
+</div>
+<div class="flex items-center gap-4 shrink-0">
+<span class="px-2 py-0.5 bg-tertiary/10 text-[10px] text-tertiary font-bold rounded border border-tertiary/20">SUCCESS</span>
+<span class="material-symbols-outlined text-[20px] text-outline group-hover:translate-x-1 transition-transform" data-icon="chevron_right">chevron_right</span>
+</div>
+</div>
+<div class="p-4 hover:bg-surface-variant/20 transition-all cursor-pointer flex items-center justify-between group">
+<div class="flex gap-4 items-center min-w-0">
+<span class="text-label-mono text-outline font-bold text-[11px] shrink-0">#8819</span>
+<span class="text-body-md truncate font-medium">Latest trends in synthetic biology research...</span>
+</div>
+<div class="flex items-center gap-4 shrink-0">
+<span class="px-2 py-0.5 bg-tertiary/10 text-[10px] text-tertiary font-bold rounded border border-tertiary/20">SUCCESS</span>
+<span class="material-symbols-outlined text-[20px] text-outline group-hover:translate-x-1 transition-transform" data-icon="chevron_right">chevron_right</span>
+</div>
+</div>
+<div class="p-4 hover:bg-surface-variant/20 transition-all cursor-pointer flex items-center justify-between group">
+<div class="flex gap-4 items-center min-w-0">
+<span class="text-label-mono text-outline font-bold text-[11px] shrink-0">#8815</span>
+<span class="text-body-md truncate font-medium">Compliance rules for GDPR-v2 application...</span>
+</div>
+<div class="flex items-center gap-4 shrink-0">
+<span class="px-2 py-0.5 bg-secondary/10 text-[10px] text-secondary font-bold rounded border border-secondary/20 flex items-center gap-1">
+<span class="material-symbols-outlined text-[12px] animate-spin" data-icon="sync">sync</span>
+                                PENDING
+                            </span>
+<span class="material-symbols-outlined text-[20px] text-outline group-hover:translate-x-1 transition-transform" data-icon="chevron_right">chevron_right</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Detailed Visual Analysis -->
+<div class="grid grid-cols-1 md:grid-cols-2 gap-gutter pb-10">
+<div class="bg-surface-container border border-outline-variant rounded-xl p-6 shadow-sm">
+<div class="flex justify-between items-center mb-6">
+<h5 class="font-bold text-body-lg">Hallucination Heatmap</h5>
+<span class="text-[10px] font-label-mono text-outline uppercase">Spatial Variance</span>
+</div>
+<div class="aspect-video w-full rounded-lg bg-surface-container-lowest border border-outline-variant p-2 relative overflow-hidden">
+<img alt="Heatmap Background" class="absolute inset-0 w-full h-full object-cover opacity-10 mix-blend-screen" src="https://lh3.googleusercontent.com/aida-public/AB6AXuALppg9uMSDjReR2s09Sw5a8fApgfGBVD4dXuBdMtlE07liD-X0ezMTcrgBIAzVLw4nJ_rbj2bNA9zpwGL3qCx2p7B_n23ZYBtdaQ6sw6NIdahgOZsxM6LJMsxUUT8kCTpJLWa-5iglM5ElGYww83OuprEFcEFYk1aKPGooyCxaHab17riPGN_8p1B9OcE0EmpBnW1ynqx_t_EvUu-p08m9xFgAMeTeTzv1nn-FwxJRiZpjxLp7_wYnMeuQj1T52zleXYyZgZWmMw"/>
+<div class="relative z-10 grid grid-cols-8 grid-rows-4 gap-1.5 h-full">
+<!-- Heatmap Squares with high-end glow -->
+<div class="bg-primary/5 border border-primary/10 rounded-sm"></div>
+<div class="bg-primary/20 border border-primary/20 rounded-sm"></div>
+<div class="bg-primary/5 border border-primary/10 rounded-sm"></div>
+<div class="bg-primary/40 border border-primary/30 rounded-sm shadow-[inset_0_0_8px_rgba(137,206,255,0.2)]"></div>
+<div class="bg-primary/10 border border-primary/10 rounded-sm"></div>
+<div class="bg-primary/10 border border-primary/10 rounded-sm"></div>
+<div class="bg-primary/20 border border-primary/20 rounded-sm"></div>
+<div class="bg-primary/5 border border-primary/10 rounded-sm"></div>
+<div class="bg-primary/30 border border-primary/30 rounded-sm"></div>
+<div class="bg-secondary/40 border border-secondary/40 rounded-sm shadow-[inset_0_0_8px_rgba(192,193,255,0.2)]"></div>
+<div class="bg-primary/10 border border-primary/10 rounded-sm"></div>
+<div class="bg-primary/10 border border-primary/10 rounded-sm"></div>
+<div class="bg-primary/5 border border-primary/10 rounded-sm"></div>
+<div class="bg-primary/20 border border-primary/20 rounded-sm"></div>
+<div class="bg-primary/10 border border-primary/10 rounded-sm"></div>
+<div class="bg-primary/30 border border-primary/30 rounded-sm"></div>
+<div class="bg-primary/10 border border-primary/10 rounded-sm"></div>
+<div class="bg-primary/10 border border-primary/10 rounded-sm"></div>
+<div class="bg-primary/20 border border-primary/20 rounded-sm"></div>
+<div class="bg-primary/10 border border-primary/10 rounded-sm"></div>
+<div class="bg-error/30 border border-error/30 rounded-sm"></div>
+<div class="bg-primary/10 border border-primary/10 rounded-sm"></div>
+<div class="bg-primary/10 border border-primary/10 rounded-sm"></div>
+<div class="bg-primary/10 border border-primary/10 rounded-sm"></div>
+<div class="bg-primary/5 border border-primary/10 rounded-sm"></div>
+<div class="bg-primary/10 border border-primary/10 rounded-sm"></div>
+<div class="bg-primary/5 border border-primary/10 rounded-sm"></div>
+<div class="bg-primary/10 border border-primary/10 rounded-sm"></div>
+<div class="bg-primary/5 border border-primary/10 rounded-sm"></div>
+<div class="bg-primary/5 border border-primary/10 rounded-sm"></div>
+<div class="bg-primary/10 border border-primary/10 rounded-sm"></div>
+<div class="bg-primary/5 border border-primary/10 rounded-sm"></div>
+</div>
+</div>
+</div>
+<div class="bg-surface-container border border-outline-variant rounded-xl p-6 shadow-sm">
+<div class="flex justify-between items-center mb-6">
+<h5 class="font-bold text-body-lg">Token Distribution</h5>
+<span class="text-[10px] font-label-mono text-outline uppercase">LLM Allocation</span>
+</div>
+<div class="aspect-video w-full rounded-lg bg-surface-container-lowest border border-outline-variant p-6 flex flex-col justify-center">
+<div class="space-y-6">
+<div class="flex items-center gap-4">
+<span class="w-24 text-label-mono text-[10px] text-outline uppercase font-bold">Reasoning</span>
+<div class="flex-1 h-8 bg-surface-variant rounded-md flex items-center relative overflow-hidden border border-outline-variant/30">
+<div class="absolute inset-y-0 left-0 bg-primary/30 w-[65%] border-r border-primary/50"></div>
+<span class="relative z-10 ml-3 text-label-mono text-primary font-black text-[13px]">65.2%</span>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<span class="w-24 text-label-mono text-[10px] text-outline uppercase font-bold">Retrieval</span>
+<div class="flex-1 h-8 bg-surface-variant rounded-md flex items-center relative overflow-hidden border border-outline-variant/30">
+<div class="absolute inset-y-0 left-0 bg-secondary/30 w-[22%] border-r border-secondary/50"></div>
+<span class="relative z-10 ml-3 text-label-mono text-secondary font-black text-[13px]">21.8%</span>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<span class="w-24 text-label-mono text-[10px] text-outline uppercase font-bold">Format</span>
+<div class="flex-1 h-8 bg-surface-variant rounded-md flex items-center relative overflow-hidden border border-outline-variant/30">
+<div class="absolute inset-y-0 left-0 bg-tertiary/30 w-[13%] border-r border-tertiary/50"></div>
+<span class="relative z-10 ml-3 text-label-mono text-tertiary font-black text-[13px]">13.0%</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</main>
+</body></html>

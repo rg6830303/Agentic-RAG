@@ -1592,24 +1592,29 @@ APP_HTML = """<!doctype html>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Advanced Agentic RAG</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500&family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0&display=swap" rel="stylesheet">
   <style>
     :root {
       color-scheme: dark;
-      --bg: #071427;
-      --navy: #0b1f3a;
-      --navy-2: #102946;
-      --panel: #10243f;
-      --panel-2: #0d1d34;
-      --line: #24486d;
-      --line-soft: rgba(93, 140, 186, 0.3);
-      --ink: #eef6ff;
-      --muted: #9fb8d1;
-      --soft: #d7e8ff;
-      --cyan: #38bdf8;
-      --teal: #2dd4bf;
+      --bg: #051424;
+      --navy: #010f1f;
+      --navy-2: #0d1c2d;
+      --panel: #122131;
+      --panel-2: #1c2b3c;
+      --surface-variant: #273647;
+      --line: #3e4850;
+      --line-soft: rgba(136, 146, 155, 0.28);
+      --ink: #d4e4fa;
+      --muted: #bec8d2;
+      --soft: #c9e6ff;
+      --cyan: #89ceff;
+      --teal: #4ae176;
       --amber: #fbbf24;
-      --rose: #fb7185;
-      --green: #22c55e;
+      --rose: #ffb4ab;
+      --green: #4ae176;
+      --violet: #c0c1ff;
       --radius: 12px;
       --radius-sm: 8px;
       --space: 16px;
@@ -1623,14 +1628,28 @@ APP_HTML = """<!doctype html>
       font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       color: var(--ink);
       background:
-        radial-gradient(circle at top left, rgba(56, 189, 248, 0.18), transparent 36rem),
-        linear-gradient(135deg, #061124 0%, #091a31 44%, #0d223d 100%);
+        radial-gradient(circle at top left, rgba(137, 206, 255, 0.12), transparent 34rem),
+        linear-gradient(135deg, #010f1f 0%, #051424 45%, #0d1c2d 100%);
       letter-spacing: 0;
     }
     button, input, select, textarea { font: inherit; }
     h1, h2, h3, p { margin: 0; }
     a { color: #7dd3fc; text-decoration: none; }
     a:hover { text-decoration: underline; }
+    .material-symbols-outlined {
+      font-family: "Material Symbols Outlined";
+      font-weight: normal;
+      font-style: normal;
+      font-size: 20px;
+      line-height: 1;
+      letter-spacing: normal;
+      text-transform: none;
+      display: inline-block;
+      white-space: nowrap;
+      direction: ltr;
+      -webkit-font-feature-settings: "liga";
+      -webkit-font-smoothing: antialiased;
+    }
     .shell {
       min-height: 100vh;
       display: grid;
@@ -1639,7 +1658,7 @@ APP_HTML = """<!doctype html>
     aside {
       padding: 22px;
       border-right: 1px solid var(--line-soft);
-      background: linear-gradient(180deg, rgba(5, 15, 31, 0.96), rgba(7, 20, 39, 0.92));
+      background: linear-gradient(180deg, rgba(1, 15, 31, 0.98), rgba(13, 28, 45, 0.96));
       position: sticky;
       top: 0;
       height: 100vh;
@@ -1660,7 +1679,7 @@ APP_HTML = """<!doctype html>
       place-items: center;
       border-radius: 12px;
       color: #04111f;
-      background: linear-gradient(135deg, var(--cyan), var(--teal));
+      background: linear-gradient(135deg, var(--cyan), #0ea5e9);
       font-weight: 900;
       letter-spacing: 0;
       box-shadow: 0 10px 24px rgba(56, 189, 248, 0.24);
@@ -1687,6 +1706,13 @@ APP_HTML = """<!doctype html>
       justify-content: center;
       margin: 4px 0 2px;
     }
+    .stitch-note {
+      color: var(--muted);
+      font-family: "JetBrains Mono", ui-monospace, monospace;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
     .tabs { display: grid; gap: 8px; margin: 20px 0; }
     .tab {
       border: 1px solid transparent;
@@ -1697,6 +1723,9 @@ APP_HTML = """<!doctype html>
       padding: 11px 12px;
       cursor: pointer;
       transition: all 0.15s ease;
+      display: flex;
+      align-items: center;
+      gap: 10px;
     }
     .tab:hover {
       color: var(--soft);
@@ -1758,8 +1787,10 @@ APP_HTML = """<!doctype html>
     }
     .panel-heading h2 { font-size: 16px; }
     .icon-button {
-      display: inline-grid;
-      place-items: center;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
       min-width: 38px;
       height: 38px;
       border-radius: 8px;
@@ -1803,6 +1834,10 @@ APP_HTML = """<!doctype html>
       font-size: 12px;
       line-height: 1.45;
     }
+    .session-preview {
+      margin-top: 6px;
+      color: rgba(190, 200, 210, 0.78);
+    }
     .conversation-panel {
       min-height: calc(100vh - 48px);
       display: grid;
@@ -1828,6 +1863,12 @@ APP_HTML = """<!doctype html>
       margin-top: 4px;
       font-size: 22px;
       line-height: 1.2;
+    }
+    .system-strip {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 10px;
     }
     .message-list {
       display: grid;
@@ -1869,6 +1910,12 @@ APP_HTML = """<!doctype html>
     .message-row.assistant.loading .message {
       border-color: rgba(45, 212, 191, 0.48);
       background: linear-gradient(135deg, rgba(16, 48, 76, 0.88), rgba(8, 28, 52, 0.78));
+    }
+    .message h4 {
+      margin: 0 0 8px;
+      color: var(--soft);
+      font-size: 13px;
+      font-weight: 800;
     }
     .message-meta {
       margin-top: 9px;
@@ -2042,7 +2089,18 @@ APP_HTML = """<!doctype html>
       color: var(--soft);
       background: rgba(9, 26, 49, 0.82);
       font-size: 12px;
+      font-family: "JetBrains Mono", ui-monospace, monospace;
+      letter-spacing: 0.02em;
     }
+    .badge:before {
+      content: "";
+      width: 7px;
+      height: 7px;
+      border-radius: 999px;
+      background: currentColor;
+      opacity: 0.8;
+    }
+    .badge:not(.good):not(.warn):not(.bad):before { color: var(--cyan); }
     .badge.good { border-color: rgba(34, 197, 94, 0.45); color: #bbf7d0; }
     .badge.warn { border-color: rgba(251, 191, 36, 0.45); color: #fde68a; }
     .badge.bad { border-color: rgba(251, 113, 133, 0.45); color: #fecdd3; }
@@ -2194,26 +2252,27 @@ APP_HTML = """<!doctype html>
   <div class="shell">
     <aside>
       <section class="brand">
-        <div class="brand-mark">AR</div>
+        <div class="brand-mark"><span class="material-symbols-outlined">memory</span></div>
         <h1>Agentic RAG</h1>
+        <span class="stitch-note">Precision Intelligence</span>
         <p>Production-style AI chat over local corpus files and Wikipedia text retrieval.</p>
       </section>
-      <button class="primary new-chat-button" id="newSessionButton" type="button">New Chat</button>
+      <button class="primary new-chat-button" id="newSessionButton" type="button"><span class="material-symbols-outlined">add</span> New Chat</button>
       <section class="sidebar-section">
         <div class="sidebar-title">
           <span>Saved Chats</span>
-          <button class="icon-button" id="cloneSessionButton" type="button" title="Clone active chat">Clone</button>
+          <button class="icon-button" id="cloneSessionButton" type="button" title="Clone active chat"><span class="material-symbols-outlined">content_copy</span> Clone</button>
         </div>
         <div id="sessionList" class="session-list">
           <p class="empty">No saved sessions yet.</p>
         </div>
       </section>
       <nav class="tabs">
-        <button class="tab active" data-tab="chat">RAG Chat</button>
-        <button class="tab" data-tab="pipeline">Generation Graph</button>
-        <button class="tab" data-tab="hitl">HITL & Checkpoints</button>
-        <button class="tab" data-tab="sources">Sources & Indexes</button>
-        <button class="tab" data-tab="evaluation">Evaluation</button>
+        <button class="tab active" data-tab="chat"><span class="material-symbols-outlined">search</span> Search Corpus</button>
+        <button class="tab" data-tab="pipeline"><span class="material-symbols-outlined">account_tree</span> Generation Graph</button>
+        <button class="tab" data-tab="hitl"><span class="material-symbols-outlined">verified_user</span> HITL Checkpoints</button>
+        <button class="tab" data-tab="sources"><span class="material-symbols-outlined">database</span> Knowledge Base</button>
+        <button class="tab" data-tab="evaluation"><span class="material-symbols-outlined">analytics</span> Diagnostics</button>
       </nav>
       <section class="panel pad">
         <h2>Runtime</h2>
@@ -2231,8 +2290,13 @@ APP_HTML = """<!doctype html>
           <section class="panel pad conversation-panel">
             <div class="conversation-head">
               <div>
-                <span class="eyebrow">Current session</span>
+                <span class="eyebrow">Output Generation</span>
                 <h2 id="currentSessionName">New RAG conversation</h2>
+                <div class="system-strip" id="systemStrip">
+                  <span class="badge">Hybrid Engine</span>
+                  <span class="badge">Wikipedia Text</span>
+                  <span class="badge">Guardrails</span>
+                </div>
               </div>
               <div class="badge-row" id="badges"><span class="badge">Ready</span></div>
             </div>
@@ -2251,7 +2315,7 @@ APP_HTML = """<!doctype html>
             <form class="composer" id="askForm">
               <label>
                 Message
-                <textarea id="question" placeholder="Ask about the deployed corpus" aria-label="Message prompt"></textarea>
+                <textarea id="question" placeholder="Ask about the deployed corpus, compare sources, or search Wikipedia-backed knowledge" aria-label="Message prompt"></textarea>
               </label>
               <div class="control-grid">
                 <label>Retrieval mode
@@ -2336,6 +2400,15 @@ APP_HTML = """<!doctype html>
       </section>
 
       <section id="sources" class="section">
+        <section class="panel pad">
+          <div class="conversation-head">
+            <div>
+              <span class="eyebrow">Knowledge Base</span>
+              <h2>Corpus, Retrieval, And Source Viewer</h2>
+            </div>
+            <div class="badge-row" id="knowledgeBadges"><span class="badge">Loading</span></div>
+          </div>
+        </section>
         <div class="workspace">
           <section class="panel pad">
             <h2>Corpus Sources</h2>
@@ -2357,6 +2430,15 @@ APP_HTML = """<!doctype html>
       </section>
 
       <section id="evaluation" class="section">
+        <section class="panel pad">
+          <div class="conversation-head">
+            <div>
+          <span class="eyebrow">Evaluation &amp; Diagnostics</span>
+              <h2>Runtime Health And Retrieval Quality</h2>
+            </div>
+            <div class="badge-row" id="diagnosticBadges"><span class="badge">Ready</span></div>
+          </div>
+        </section>
         <section class="panel pad">
           <div class="actions">
             <button class="primary" id="runEval" type="button">Run Golden Evaluation</button>
@@ -2607,6 +2689,23 @@ APP_HTML = """<!doctype html>
       $("#chunkCount").textContent = state.corpus.chunk_count;
       $("#modelState").textContent = state.runtime.azure_openai.chat_configured ? "Azure" : "Local";
       $("#indexState").textContent = state.corpus.indexes.hybrid ? "Hybrid" : "Lexical";
+      $("#systemStrip").innerHTML = [
+        badge(`${state.corpus.source_count} files`, "good"),
+        badge(`${state.corpus.chunk_count} chunks`),
+        badge(state.corpus.indexes.wikipedia_text ? "Wikipedia text" : "Local only", state.corpus.indexes.wikipedia_text ? "good" : "warn"),
+        badge(state.runtime.azure_openai.chat_configured ? "Azure synthesis" : "Local synthesis")
+      ].join("");
+      $("#knowledgeBadges").innerHTML = [
+        badge(`${state.corpus.source_count} files`, "good"),
+        badge(`${state.corpus.chunk_count} chunks`),
+        badge(state.corpus.indexes.wikipedia_text ? "Wikipedia enabled" : "Wikipedia off", state.corpus.indexes.wikipedia_text ? "good" : "warn"),
+        badge(state.runtime.azure_openai.chat_configured ? "Azure ready" : "Local fallback")
+      ].join("");
+      $("#diagnosticBadges").innerHTML = [
+        badge("Runtime healthy", "good"),
+        badge(state.runtime.azure_openai.chat_configured ? "Azure configured" : "No secrets exposed"),
+        badge(`${state.corpus.chunk_count} chunks`)
+      ].join("");
       if (!state.last) {
         $("#badges").innerHTML = [
           badge(`${state.corpus.source_count} local sources`, "good"),
@@ -2691,7 +2790,7 @@ APP_HTML = """<!doctype html>
         <button class="session-card ${session.session_id === state.activeSessionId ? "active" : ""}" data-session="${escapeHtml(session.session_id)}">
           <strong>${escapeHtml(session.session_name)}</strong>
           <span>${session.exchange_count} exchanges - ${escapeHtml(formatDate(session.updated_at))}</span>
-          <span>${escapeHtml(session.user_agenda || session.last_prompt || "No agenda yet.")}</span>
+          <span class="session-preview">${escapeHtml(session.last_prompt || session.user_agenda || "No preview yet.")}</span>
         </button>
       `).join("");
       $$("#sessionList .session-card").forEach((button) => {
@@ -2764,8 +2863,19 @@ APP_HTML = """<!doctype html>
         const metaBadges = [
           meta.provider ? badge(meta.provider) : "",
           meta.retrieval_mode ? badge(meta.retrieval_mode) : "",
-          typeof meta.confidence === "number" ? badge(`confidence ${meta.confidence}`, meta.needs_review ? "warn" : "good") : ""
+          typeof meta.confidence === "number" ? badge(`confidence ${meta.confidence}`, meta.needs_review ? "warn" : "good") : "",
+          meta.wikipedia_count ? badge(`${meta.wikipedia_count} wiki`, "good") : ""
         ].join("");
+        const citationCards = (turn.citations || []).slice(0, 4).map((citation) => `
+          <article class="item">
+            <header>
+              <span>${escapeHtml(citation.page_title || citation.file_name || "Source")}</span>
+              <span>${escapeHtml(citation.source_type || "local")}</span>
+            </header>
+            <p>${escapeHtml(citation.snippet || "")}</p>
+            ${citation.source_url ? `<p><a href="${escapeHtml(citation.source_url)}" target="_blank" rel="noreferrer">${escapeHtml(citation.source_url)}</a></p>` : ""}
+          </article>
+        `).join("");
         return `
           <article class="message-row user">
             <div class="message">${escapeHtml(turn.user_prompt)}</div>
@@ -2774,6 +2884,7 @@ APP_HTML = """<!doctype html>
             <div class="message">
               ${escapeHtml(turn.ai_response)}
               <div class="message-meta">${metaBadges}</div>
+              ${citationCards ? `<div class="attention"><h4>Sources</h4>${citationCards}</div>` : ""}
             </div>
           </article>
         `;

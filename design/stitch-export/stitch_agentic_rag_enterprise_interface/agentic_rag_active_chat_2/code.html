@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                      "surface-variant": "#273647",
+                      "tertiary": "#4ae176",
+                      "surface": "#051424",
+                      "on-primary-fixed-variant": "#004c6e",
+                      "inverse-surface": "#d4e4fa",
+                      "tertiary-fixed-dim": "#4ae176",
+                      "outline": "#88929b",
+                      "surface-container": "#122131",
+                      "on-primary-container": "#003751",
+                      "on-error": "#690005",
+                      "error-container": "#93000a",
+                      "on-tertiary-fixed-variant": "#005321",
+                      "on-secondary": "#1000a9",
+                      "on-tertiary": "#003915",
+                      "error": "#ffb4ab",
+                      "primary-fixed": "#c9e6ff",
+                      "surface-dim": "#051424",
+                      "background": "#051424",
+                      "on-tertiary-container": "#003c16",
+                      "outline-variant": "#3e4850",
+                      "surface-bright": "#2c3a4c",
+                      "on-error-container": "#ffdad6",
+                      "surface-tint": "#89ceff",
+                      "on-secondary-fixed-variant": "#2f2ebe",
+                      "primary-container": "#0ea5e9",
+                      "surface-container-highest": "#273647",
+                      "tertiary-container": "#00b351",
+                      "surface-container-high": "#1c2b3c",
+                      "inverse-primary": "#006591",
+                      "secondary-container": "#3131c0",
+                      "on-primary": "#00344d",
+                      "secondary-fixed-dim": "#c0c1ff",
+                      "surface-container-lowest": "#010f1f",
+                      "on-primary-fixed": "#001e2f",
+                      "tertiary-fixed": "#6bff8f",
+                      "on-background": "#d4e4fa",
+                      "secondary": "#c0c1ff",
+                      "on-surface-variant": "#bec8d2",
+                      "on-surface": "#d4e4fa",
+                      "primary": "#89ceff",
+                      "on-tertiary-fixed": "#002109",
+                      "surface-container-low": "#0d1c2d",
+                      "primary-fixed-dim": "#89ceff",
+                      "on-secondary-fixed": "#07006c",
+                      "inverse-on-surface": "#233143",
+                      "on-secondary-container": "#b0b2ff",
+                      "secondary-fixed": "#e1e0ff"
+              },
+              "borderRadius": {
+                      "DEFAULT": "0.25rem",
+                      "lg": "0.5rem",
+                      "xl": "0.75rem",
+                      "full": "9999px"
+              },
+              "spacing": {
+                      "container-max": "1440px",
+                      "gutter": "16px",
+                      "unit": "8px",
+                      "margin-mobile": "16px",
+                      "margin-desktop": "40px"
+              },
+              "fontFamily": {
+                      "caption": ["Inter"],
+                      "headline-md": ["Inter"],
+                      "display-lg": ["Inter"],
+                      "body-lg": ["Inter"],
+                      "headline-sm": ["Inter"],
+                      "body-md": ["Inter"],
+                      "display-lg-mobile": ["Inter"],
+                      "label-mono": ["JetBrains Mono"]
+              },
+              "fontSize": {
+                      "caption": ["12px", {"lineHeight": "16px", "fontWeight": "500"}],
+                      "headline-md": ["24px", {"lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600"}],
+                      "display-lg": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                      "body-lg": ["16px", {"lineHeight": "26px", "fontWeight": "400"}],
+                      "headline-sm": ["20px", {"lineHeight": "28px", "fontWeight": "600"}],
+                      "body-md": ["14px", {"lineHeight": "22px", "fontWeight": "400"}],
+                      "display-lg-mobile": ["28px", {"lineHeight": "36px", "fontWeight": "700"}],
+                      "label-mono": ["11px", {"lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "500"}]
+              }
+            },
+          },
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            vertical-align: middle;
+        }
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #3e4850; border-radius: 10px; }
+        .message-gradient {
+            background: linear-gradient(180deg, rgba(28, 43, 60, 0) 0%, rgba(28, 43, 60, 0.4) 100%);
+        }
+    </style>
+</head>
+<body class="bg-surface text-on-surface font-body-md overflow-hidden antialiased">
+<div class="flex h-screen w-full">
+<!-- SideNavBar -->
+<aside class="w-80 bg-surface-container-lowest border-r border-outline-variant/30 flex flex-col h-full hidden md:flex">
+<div class="p-8">
+<div class="flex items-center gap-4">
+<div class="w-11 h-11 rounded-xl bg-primary-container flex items-center justify-center text-on-primary-container overflow-hidden shadow-lg shadow-primary/10">
+<img alt="Agentic RAG Logo" class="w-full h-full object-cover" data-alt="A sophisticated, minimalist abstract logo for a tech company, featuring geometric interlocking circles and lines that suggest a neural network or a complex data map. The colors are deep navy blues and vibrant electric blues on a dark background, reflecting a modern, enterprise-grade AI brand identity." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBAV9HpBprpVhLoCmm2rIB_Zg3VuQqi-uVQQ5LLCqLy1eEhe38yATpKor-xQap8ozVcA4Ca0q_UZQxtQJNs5dnT3dVXKacHL1Xr6TngYn7SuPjgl53uE3vD1R8QjqdEyaI-USOXbe3wjbUCn7wSu2JW0Jr14Zkaeedu-Rg7Tn0UbJWnTeH0x_G9H6kdTDtXNbzxo0E3TxHPbyyCA8kg2iII5ffMYYnDmd8E73dBgt5O_2uUi5dLvkMpWDOVBu1oBAwiHQkYwnmb3Q"/>
+</div>
+<div>
+<h1 class="text-headline-sm font-bold text-primary-fixed tracking-tight">Agentic RAG</h1>
+<p class="text-label-mono text-on-surface-variant uppercase tracking-widest opacity-70">SaaS Intelligence</p>
+</div>
+</div>
+</div>
+<div class="px-6 mb-8">
+<button class="w-full py-3.5 px-4 bg-primary text-on-primary font-semibold rounded-xl flex items-center justify-center gap-2.5 hover:shadow-lg hover:shadow-primary/20 transition-all active:scale-[0.98] duration-200">
+<span class="material-symbols-outlined text-xl">add</span>
+<span class="text-sm">New Intelligence Session</span>
+</button>
+</div>
+<nav class="flex-1 px-4 space-y-1.5 overflow-y-auto">
+<p class="px-4 py-2 text-[10px] font-bold text-on-surface-variant uppercase tracking-[0.15em] opacity-50">Main Menu</p>
+<a class="flex items-center gap-3 px-4 py-2.5 text-on-surface-variant hover:text-on-surface hover:bg-surface-variant/30 transition-all rounded-lg group" href="#">
+<span class="material-symbols-outlined opacity-70 group-hover:opacity-100">search</span>
+<span class="text-sm font-medium">Search Corpus</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-2.5 text-primary-fixed font-semibold bg-primary/10 transition-all rounded-lg border border-primary/20" href="#">
+<span class="material-symbols-outlined">history</span>
+<span class="text-sm">Chat History</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-2.5 text-on-surface-variant hover:text-on-surface hover:bg-surface-variant/30 transition-all rounded-lg group" href="#">
+<span class="material-symbols-outlined opacity-70 group-hover:opacity-100">database</span>
+<span class="text-sm font-medium">Knowledge Hub</span>
+</a>
+<div class="pt-6 pb-2">
+<p class="px-4 py-2 text-[10px] font-bold text-on-surface-variant uppercase tracking-[0.15em] opacity-50">Recent Activities</p>
+</div>
+<a class="flex items-center gap-3 px-4 py-2.5 text-on-surface-variant/80 hover:text-on-surface hover:bg-surface-variant/20 transition-all rounded-lg text-sm" href="#">
+<span class="material-symbols-outlined text-lg opacity-40">chat_bubble_outline</span>
+<span class="truncate">Architecture analysis...</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-2.5 text-on-surface-variant/80 hover:text-on-surface hover:bg-surface-variant/20 transition-all rounded-lg text-sm" href="#">
+<span class="material-symbols-outlined text-lg opacity-40">chat_bubble_outline</span>
+<span class="truncate">Vector DB comparisons</span>
+</a>
+</nav>
+<div class="mt-auto p-4 border-t border-outline-variant/20 bg-surface-container-lowest/50">
+<a class="flex items-center gap-3 px-4 py-2.5 text-on-surface-variant hover:text-primary transition-colors text-sm font-medium" href="#">
+<span class="material-symbols-outlined opacity-70">settings</span>
+<span>System Settings</span>
+</a>
+<div class="mt-2 flex items-center gap-3 px-4 py-3 bg-surface-variant/20 rounded-xl border border-outline-variant/10">
+<div class="w-8 h-8 rounded-full bg-primary-fixed/20 flex items-center justify-center text-primary-fixed text-xs font-bold">JD</div>
+<div class="flex-1 min-w-0">
+<p class="text-xs font-bold text-on-surface truncate">Jane Doe</p>
+<p class="text-[10px] text-on-surface-variant truncate">Enterprise Plan</p>
+</div>
+<button class="text-on-surface-variant hover:text-on-surface"><span class="material-symbols-outlined text-lg">more_vert</span></button>
+</div>
+</div>
+</aside>
+<!-- Main Workspace -->
+<main class="flex-1 flex flex-col min-w-0 bg-surface-dim">
+<!-- TopAppBar -->
+<header class="flex justify-between items-center w-full px-10 h-20 border-b border-outline-variant/20 bg-surface-dim/80 backdrop-blur-md z-10 sticky top-0">
+<div class="flex items-center gap-10">
+<span class="text-headline-sm font-black text-primary md:hidden">Agentic RAG</span>
+<nav class="hidden md:flex items-center gap-8">
+<a class="text-sm font-semibold text-on-surface-variant hover:text-primary transition-all relative py-6 group" href="#">
+                        Hybrid Engine
+                        <span class="absolute bottom-0 left-0 w-full h-0.5 bg-primary scale-x-0 group-hover:scale-x-100 transition-transform"></span>
+</a>
+<a class="text-sm font-semibold text-on-surface-variant hover:text-primary transition-all relative py-6 group" href="#">
+                        Data Sources
+                        <span class="absolute bottom-0 left-0 w-full h-0.5 bg-primary scale-x-0 group-hover:scale-x-100 transition-transform"></span>
+</a>
+<a class="text-sm font-bold text-primary-fixed border-b-2 border-primary-fixed py-6" href="#">Output Generation</a>
+</nav>
+</div>
+<div class="flex items-center gap-5">
+<button class="hidden lg:flex items-center gap-2.5 px-4 py-2 rounded-full border border-outline-variant/40 text-label-mono text-on-surface-variant hover:border-primary hover:text-primary hover:bg-primary/5 transition-all">
+<span class="material-symbols-outlined text-lg">analytics</span>
+                    Performance Stats
+                </button>
+<div class="h-6 w-px bg-outline-variant/30 hidden lg:block"></div>
+<div class="flex items-center gap-1">
+<button class="p-2.5 text-on-surface-variant hover:text-primary hover:bg-primary/10 rounded-lg transition-all"><span class="material-symbols-outlined">tune</span></button>
+<button class="p-2.5 text-on-surface-variant hover:text-primary hover:bg-primary/10 rounded-lg transition-all relative">
+<span class="material-symbols-outlined">notifications</span>
+<span class="absolute top-2.5 right-2.5 w-2 h-2 bg-error rounded-full ring-2 ring-surface-dim"></span>
+</button>
+</div>
+</div>
+</header>
+<!-- Chat Content Area -->
+<div class="flex-1 flex overflow-hidden">
+<!-- Message Thread -->
+<section class="flex-1 overflow-y-auto px-margin-desktop py-12 relative flex flex-col scroll-smooth">
+<div class="max-w-4xl mx-auto w-full space-y-12 flex-1">
+<!-- User Message -->
+<div class="flex items-start gap-6 group">
+<div class="w-10 h-10 rounded-xl bg-surface-variant/40 flex items-center justify-center shrink-0 border border-outline-variant/20 shadow-sm">
+<span class="material-symbols-outlined text-xl text-on-surface-variant">person</span>
+</div>
+<div class="flex-1 pt-1.5">
+<p class="text-body-lg font-medium text-on-surface leading-relaxed">Explain retrieval augmented generation and cite Wikipedia if useful.</p>
+</div>
+</div>
+<!-- Assistant Message -->
+<div class="flex items-start gap-6">
+<div class="w-10 h-10 rounded-xl bg-primary-container flex items-center justify-center shrink-0 shadow-lg shadow-primary/10 border border-primary/20">
+<span class="material-symbols-outlined text-xl text-on-primary-container" style="font-variation-settings: 'FILL' 1;">auto_awesome</span>
+</div>
+<div class="space-y-8 flex-1">
+<div class="space-y-5">
+<p class="text-body-lg text-on-surface/90 font-normal">
+                                    Retrieval-Augmented Generation (RAG) is a sophisticated architectural pattern that enhances Large Language Models (LLMs) by integrating an external, dynamic knowledge base into the inference process. Instead of relying solely on the pre-trained weights of the model, which may be outdated or contain knowledge gaps, RAG systems retrieve relevant document snippets from a vector database or search engine to provide context for the final output generation.
+                                </p>
+<p class="text-body-lg text-on-surface/90">
+                                    As noted by resources like Wikipedia, the core advantage of this "grounding" mechanism is a significant reduction in hallucinations. By providing the model with factual evidence before it generates a response, the system ensures that technical explanations are rooted in verifiable data. This is particularly crucial for enterprise intelligence tasks where precision and data lineage are paramount.
+                                </p>
+<div class="p-5 bg-surface-container/30 border-l-4 border-primary rounded-r-xl">
+<p class="text-body-lg text-on-surface font-medium italic">
+                                        Process involves three stages: <span class="text-primary-fixed font-bold">Retrieval</span>, <span class="text-primary-fixed font-bold">Augmentation</span>, and <span class="text-primary-fixed font-bold">Generation</span>.
+                                    </p>
+</div>
+</div>
+<!-- Metadata Chips -->
+<div class="flex flex-wrap gap-3">
+<div class="px-3.5 py-1.5 bg-surface-container-high/50 border border-outline-variant/30 rounded-full flex items-center gap-2.5">
+<span class="w-2 h-2 rounded-full bg-tertiary shadow-[0_0_8px_rgba(74,225,118,0.4)]"></span>
+<span class="text-label-mono text-on-surface-variant font-bold">CONFIDENCE: 0.86</span>
+</div>
+<div class="px-3.5 py-1.5 bg-surface-container-high/50 border border-outline-variant/30 rounded-full flex items-center gap-2.5">
+<span class="material-symbols-outlined text-sm text-primary">hub</span>
+<span class="text-label-mono text-on-surface-variant font-bold">HYBRID MODE</span>
+</div>
+<div class="px-3.5 py-1.5 bg-surface-container-high/50 border border-outline-variant/30 rounded-full flex items-center gap-2.5">
+<span class="material-symbols-outlined text-sm text-primary">verified</span>
+<span class="text-label-mono text-on-surface-variant font-bold">4 CITATIONS</span>
+</div>
+</div>
+<!-- Source Cards -->
+<div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+<div class="p-4 bg-surface-container-low border border-outline-variant/20 rounded-2xl hover:border-primary/40 hover:bg-surface-variant/10 transition-all cursor-pointer group shadow-sm">
+<div class="flex items-center gap-3 mb-3">
+<div class="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0 border border-primary/20">
+<span class="material-symbols-outlined text-primary text-lg">description</span>
+</div>
+<div class="min-w-0">
+<h4 class="font-bold text-sm text-on-surface truncate">Internal RAG Protocol</h4>
+<p class="text-[10px] font-bold text-on-surface-variant/60 uppercase tracking-tight">Technical PDF</p>
+</div>
+</div>
+<p class="text-xs text-on-surface-variant line-clamp-2 leading-relaxed opacity-80">"...improving output accuracy through dense vector retrieval mechanisms..."</p>
+</div>
+<div class="p-4 bg-surface-container-low border border-outline-variant/20 rounded-2xl hover:border-primary/40 hover:bg-surface-variant/10 transition-all cursor-pointer group shadow-sm">
+<div class="flex items-center gap-3 mb-3">
+<div class="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center shrink-0 border border-outline-variant/20">
+<img alt="Wikipedia" class="w-5 h-5 grayscale group-hover:grayscale-0 transition-all" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDVARqLxDjpzFSFZ4Owo6YkA4Ck3vrrHBDJZaAWnhajK7otgF-If92Zjkr7EgWdp0qTxGPlvA3h8akB3QCBoFDpT_dIGbpLWU-f_mwo9eJCs60xlb0kbtvLGjIwHT1oPcsiRwaWZrBsGpiw617ZkmJGHBbWTVrUg9f5eLtJxxd0NGpCI8eNCDoYDT0ChOIIPYf-3M-hN8lULSYBUi7IUMmjsuO-zhutrYOmQEYvUY4LRtUpaKCjsm3c-F3mjYycbfd_2djhnlePAg"/>
+</div>
+<div class="min-w-0">
+<h4 class="font-bold text-sm text-on-surface truncate">Wikipedia</h4>
+<p class="text-[10px] font-bold text-on-surface-variant/60 uppercase tracking-tight">Public Wiki</p>
+</div>
+</div>
+<p class="text-xs text-on-surface-variant line-clamp-2 leading-relaxed opacity-80">"RAG models combine parametric and non-parametric memory..."</p>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Bottom Input Area -->
+<div class="mt-auto pt-10 sticky bottom-0 bg-gradient-to-t from-surface-dim via-surface-dim/95 to-transparent pb-8 px-4">
+<div class="max-w-4xl mx-auto space-y-6">
+<!-- Suggestions -->
+<div class="flex flex-wrap gap-2.5 justify-center">
+<button class="px-4 py-2 bg-surface-container-high/40 border border-outline-variant/30 rounded-full text-xs font-semibold text-on-surface-variant hover:border-primary hover:text-primary hover:bg-primary/5 transition-all">How does hybrid retrieval work?</button>
+<button class="px-4 py-2 bg-surface-container-high/40 border border-outline-variant/30 rounded-full text-xs font-semibold text-on-surface-variant hover:border-primary hover:text-primary hover:bg-primary/5 transition-all">Explain Vector Databases</button>
+<button class="px-4 py-2 bg-surface-container-high/40 border border-outline-variant/30 rounded-full text-xs font-semibold text-on-surface-variant hover:border-primary hover:text-primary hover:bg-primary/5 transition-all">Cite architectural diagrams</button>
+</div>
+<!-- Input Box -->
+<div class="relative group">
+<div class="absolute -inset-1 bg-gradient-to-r from-primary/10 to-primary/5 blur-lg opacity-0 group-focus-within:opacity-100 transition-opacity rounded-2xl"></div>
+<div class="relative flex items-center gap-3 p-2.5 bg-surface-container border border-outline-variant/40 focus-within:border-primary focus-within:ring-1 focus-within:ring-primary/20 transition-all rounded-2xl shadow-2xl">
+<button class="p-2.5 text-on-surface-variant hover:text-primary transition-all rounded-lg hover:bg-primary/5"><span class="material-symbols-outlined">attach_file</span></button>
+<input class="flex-1 bg-transparent border-none focus:ring-0 text-on-surface placeholder-on-surface-variant/40 px-3 py-3.5 text-sm font-medium" placeholder="Ask a follow-up intelligence question..." type="text"/>
+<div class="flex items-center gap-3 pr-2">
+<button class="p-2 text-on-surface-variant hover:text-primary transition-all rounded-lg"><span class="material-symbols-outlined text-xl">mic</span></button>
+<button class="w-12 h-12 bg-primary text-on-primary rounded-xl flex items-center justify-center hover:shadow-lg hover:shadow-primary/30 transition-all active:scale-95 group/send">
+<span class="material-symbols-outlined text-2xl group-hover:translate-x-0.5 transition-transform">arrow_forward</span>
+</button>
+</div>
+</div>
+</div>
+<p class="text-center text-[10px] text-on-surface-variant/40 font-medium">Agentic RAG can make mistakes. Verify important technical insights.</p>
+</div>
+</div>
+</section>
+<!-- Right Insight Panel -->
+<aside class="w-96 h-full border-l border-outline-variant/20 bg-surface-container-lowest/80 backdrop-blur-sm hidden xl:flex flex-col">
+<div class="p-8 border-b border-outline-variant/20 flex items-center justify-between bg-surface-dim/40">
+<h3 class="font-bold text-on-surface text-sm tracking-tight uppercase">Retrieved Context</h3>
+<span class="px-2.5 py-1 bg-tertiary/10 text-tertiary text-[9px] font-black rounded-md border border-tertiary/20 uppercase tracking-wider">Live</span>
+</div>
+<div class="flex-1 overflow-y-auto p-6 space-y-5">
+<div class="p-4 bg-surface-container/40 rounded-xl border border-outline-variant/20 hover:border-primary/30 transition-all group">
+<div class="flex items-center justify-between mb-3">
+<span class="text-xs font-bold text-primary-fixed tracking-tight truncate pr-2">DOC_882_EXTRACT.pdf</span>
+<span class="text-[10px] font-black text-tertiary shrink-0">94.2%</span>
+</div>
+<p class="text-xs text-on-surface-variant/90 leading-relaxed mb-4">The integration of vector search allows for semantic matching beyond keyword frequency, enabling higher precision...</p>
+<div class="flex items-center gap-2">
+<span class="px-2 py-0.5 bg-primary/5 text-[9px] font-bold text-primary border border-primary/10 rounded uppercase tracking-tighter">#VectorSearch</span>
+<span class="px-2 py-0.5 bg-primary/5 text-[9px] font-bold text-primary border border-primary/10 rounded uppercase tracking-tighter">#LLM</span>
+</div>
+</div>
+<div class="p-4 bg-surface-container/40 rounded-xl border border-outline-variant/20 hover:border-primary/30 transition-all group">
+<div class="flex items-center justify-between mb-3">
+<span class="text-xs font-bold text-primary-fixed tracking-tight truncate pr-2">WIKI_RAG_2024</span>
+<span class="text-[10px] font-black text-tertiary shrink-0">89.1%</span>
+</div>
+<p class="text-xs text-on-surface-variant/90 leading-relaxed">System architecture focusing on sequence-to-sequence model augmentation for factual reliability...</p>
+</div>
+<!-- Engine Stats Section -->
+<div class="pt-8 border-t border-outline-variant/20">
+<h4 class="text-[10px] font-bold text-on-surface-variant uppercase tracking-[0.2em] mb-6 opacity-60">Engine Diagnostics</h4>
+<div class="space-y-6">
+<div>
+<div class="flex justify-between text-[11px] mb-2 font-bold uppercase tracking-tight">
+<span class="text-on-surface-variant">Inference Latency</span>
+<span class="text-tertiary">420ms</span>
+</div>
+<div class="h-1.5 bg-surface-variant rounded-full overflow-hidden shadow-inner">
+<div class="h-full bg-gradient-to-r from-tertiary/60 to-tertiary w-[42%] rounded-full"></div>
+</div>
+</div>
+<div>
+<div class="flex justify-between text-[11px] mb-2 font-bold uppercase tracking-tight">
+<span class="text-on-surface-variant">Context Tokens</span>
+<span class="text-primary">1,244 / 4k</span>
+</div>
+<div class="h-1.5 bg-surface-variant rounded-full overflow-hidden shadow-inner">
+<div class="h-full bg-gradient-to-r from-primary/60 to-primary w-[31%] rounded-full"></div>
+</div>
+</div>
+<div class="p-4 bg-primary/5 border border-primary/20 rounded-xl mt-4">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-primary text-xl">speed</span>
+<div>
+<p class="text-xs font-bold text-on-surface">Optimal Throughput</p>
+<p class="text-[10px] text-on-surface-variant">Current cluster healthy</p>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</aside>
+</div>
+</main>
+</div>
+</body></html>

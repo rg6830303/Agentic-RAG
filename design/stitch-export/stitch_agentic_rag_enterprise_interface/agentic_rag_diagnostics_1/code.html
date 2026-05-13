@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&amp;family=JetBrains+Mono:wght@500&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "surface-variant": "#273647",
+                        "tertiary": "#4ae176",
+                        "surface": "#051424",
+                        "on-primary-fixed-variant": "#004c6e",
+                        "inverse-surface": "#d4e4fa",
+                        "tertiary-fixed-dim": "#4ae176",
+                        "outline": "#88929b",
+                        "surface-container": "#122131",
+                        "on-primary-container": "#003751",
+                        "on-error": "#690005",
+                        "error-container": "#93000a",
+                        "on-tertiary-fixed-variant": "#005321",
+                        "on-secondary": "#1000a9",
+                        "on-tertiary": "#003915",
+                        "error": "#ffb4ab",
+                        "primary-fixed": "#c9e6ff",
+                        "surface-dim": "#051424",
+                        "background": "#051424",
+                        "on-tertiary-container": "#003c16",
+                        "outline-variant": "#3e4850",
+                        "surface-bright": "#2c3a4c",
+                        "on-error-container": "#ffdad6",
+                        "surface-tint": "#89ceff",
+                        "on-secondary-fixed-variant": "#2f2ebe",
+                        "primary-container": "#0ea5e9",
+                        "surface-container-highest": "#273647",
+                        "tertiary-container": "#00b351",
+                        "surface-container-high": "#1c2b3c",
+                        "inverse-primary": "#006591",
+                        "secondary-container": "#3131c0",
+                        "on-primary": "#00344d",
+                        "secondary-fixed-dim": "#c0c1ff",
+                        "surface-container-lowest": "#010f1f",
+                        "on-primary-fixed": "#001e2f",
+                        "tertiary-fixed": "#6bff8f",
+                        "on-background": "#d4e4fa",
+                        "secondary": "#c0c1ff",
+                        "on-surface-variant": "#bec8d2",
+                        "on-surface": "#d4e4fa",
+                        "primary": "#89ceff",
+                        "on-tertiary-fixed": "#002109",
+                        "surface-container-low": "#0d1c2d",
+                        "primary-fixed-dim": "#89ceff",
+                        "on-secondary-fixed": "#07006c",
+                        "inverse-on-surface": "#233143",
+                        "on-secondary-container": "#b0b2ff",
+                        "secondary-fixed": "#e1e0ff"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "container-max": "1440px",
+                        "gutter": "16px",
+                        "unit": "8px",
+                        "margin-mobile": "16px",
+                        "margin-desktop": "32px"
+                    },
+                    "fontFamily": {
+                        "caption": ["Inter"],
+                        "headline-md": ["Inter"],
+                        "display-lg": ["Inter"],
+                        "body-lg": ["Inter"],
+                        "headline-sm": ["Inter"],
+                        "body-md": ["Inter"],
+                        "display-lg-mobile": ["Inter"],
+                        "label-mono": ["JetBrains Mono"]
+                    },
+                    "fontSize": {
+                        "caption": ["12px", {"lineHeight": "16px", "fontWeight": "500"}],
+                        "headline-md": ["24px", {"lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600"}],
+                        "display-lg": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                        "body-lg": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                        "headline-sm": ["20px", {"lineHeight": "28px", "fontWeight": "600"}],
+                        "body-md": ["14px", {"lineHeight": "20px", "fontWeight": "400"}],
+                        "display-lg-mobile": ["28px", {"lineHeight": "36px", "fontWeight": "700"}],
+                        "label-mono": ["12px", {"lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "500"}]
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .pipeline-flow-path {
+            background: linear-gradient(90deg, transparent, #89ceff 50%, transparent);
+            background-size: 200% 100%;
+        }
+        .glass-panel {
+            background: rgba(30, 41, 59, 0.7);
+            backdrop-filter: blur(8px);
+        }
+    </style>
+</head>
+<body class="bg-surface text-on-surface font-body-md min-h-screen flex flex-col md:flex-row">
+<!-- SideNavBar (Shared Component) -->
+<aside class="docked left-0 h-screen w-72 flex flex-col h-full p-gutter bg-surface-container-low dark:bg-surface-container-lowest border-r border-outline-variant dark:border-outline-variant hidden md:flex shrink-0">
+<div class="mb-unit * 10">
+<div class="flex items-center gap-3 mb-1">
+<div class="w-8 h-8 bg-primary rounded flex items-center justify-center text-on-primary">
+<span class="material-symbols-outlined" data-icon="memory">memory</span>
+</div>
+<h1 class="text-headline-sm font-headline-sm font-bold text-primary dark:text-primary-fixed">Agentic RAG</h1>
+</div>
+<p class="text-label-mono font-label-mono text-on-surface-variant uppercase tracking-widest text-[10px]">Precision Intelligence</p>
+</div>
+<button class="w-full py-3 px-4 mb-8 bg-primary text-on-primary rounded-lg font-bold flex items-center justify-center gap-2 hover:opacity-90 transition-all active:scale-95 duration-100">
+<span class="material-symbols-outlined" data-icon="add">add</span>
+            New Chat
+        </button>
+<nav class="flex-1 space-y-1">
+<a class="flex items-center gap-3 px-4 py-3 rounded-lg text-on-surface-variant dark:text-on-surface-variant hover:bg-surface-variant dark:hover:bg-surface-container-highest transition-colors" href="#">
+<span class="material-symbols-outlined" data-icon="search">search</span>
+<span class="text-label-mono font-label-mono uppercase">Search</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-lg text-on-surface-variant dark:text-on-surface-variant hover:bg-surface-variant dark:hover:bg-surface-container-highest transition-colors" href="#">
+<span class="material-symbols-outlined" data-icon="history">history</span>
+<span class="text-label-mono font-label-mono uppercase">Chat History</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-lg text-primary dark:text-primary-fixed font-bold border-r-2 border-primary bg-surface-variant dark:bg-surface-container-highest" href="#">
+<span class="material-symbols-outlined" data-icon="database">database</span>
+<span class="text-label-mono font-label-mono uppercase">Knowledge Base</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-lg text-on-surface-variant dark:text-on-surface-variant hover:bg-surface-variant dark:hover:bg-surface-container-highest transition-colors" href="#">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+<span class="text-label-mono font-label-mono uppercase">Settings</span>
+</a>
+</nav>
+<div class="mt-auto pt-8 border-t border-outline-variant">
+<a class="flex items-center gap-3 px-4 py-2 text-on-surface-variant hover:text-primary transition-colors" href="#">
+<span class="material-symbols-outlined" data-icon="description">description</span>
+<span class="text-label-mono font-label-mono text-[11px] uppercase">Documentation</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-2 text-on-surface-variant hover:text-primary transition-colors" href="#">
+<span class="material-symbols-outlined" data-icon="help">help</span>
+<span class="text-label-mono font-label-mono text-[11px] uppercase">Support</span>
+</a>
+</div>
+</aside>
+<main class="flex-1 flex flex-col min-w-0 h-screen overflow-y-auto">
+<!-- TopAppBar (Shared Component) -->
+<header class="flex justify-between items-center w-full px-margin-desktop h-16 shrink-0 bg-surface dark:bg-surface-dim border-b border-outline-variant dark:border-outline-variant sticky top-0 z-10">
+<div class="flex items-center gap-8">
+<h2 class="text-headline-md font-headline-md font-black text-on-surface dark:text-on-surface">Agentic RAG</h2>
+<nav class="hidden md:flex gap-6">
+<a class="text-on-surface-variant dark:text-on-surface-variant hover:text-primary dark:hover:text-primary-fixed transition-all text-body-md font-body-md" href="#">Hybrid</a>
+<a class="text-on-surface-variant dark:text-on-surface-variant hover:text-primary dark:hover:text-primary-fixed transition-all text-body-md font-body-md" href="#">Sources</a>
+<a class="text-primary dark:text-primary-fixed border-b-2 border-primary pb-1 text-body-md font-body-md" href="#">Generation</a>
+</nav>
+</div>
+<div class="flex items-center gap-4">
+<button class="px-4 py-1.5 rounded-full border border-outline-variant text-caption font-caption text-on-surface-variant hover:bg-surface-variant transition-colors">Technical Insights</button>
+<div class="flex items-center gap-3 text-on-surface-variant">
+<button class="p-1 hover:text-primary transition-all"><span class="material-symbols-outlined" data-icon="tune">tune</span></button>
+<button class="p-1 hover:text-primary transition-all relative">
+<span class="material-symbols-outlined" data-icon="notifications">notifications</span>
+<span class="absolute top-0 right-0 w-2 h-2 bg-primary rounded-full"></span>
+</button>
+<button class="p-1 hover:text-primary transition-all"><span class="material-symbols-outlined" data-icon="account_circle">account_circle</span></button>
+</div>
+</div>
+</header>
+<!-- Dashboard Canvas -->
+<div class="p-margin-desktop space-y-gutter">
+<!-- Page Header -->
+<div class="flex justify-between items-end">
+<div>
+<h3 class="text-display-lg font-display-lg text-on-surface">Evaluation &amp; Diagnostics</h3>
+<p class="text-on-surface-variant mt-1">Real-time telemetry and pipeline health orchestration.</p>
+</div>
+<div class="flex gap-2">
+<div class="flex items-center gap-2 px-3 py-1 bg-surface-container rounded-md border border-outline-variant">
+<span class="w-2 h-2 rounded-full bg-tertiary"></span>
+<span class="text-label-mono font-label-mono text-tertiary">SYSTEM LIVE</span>
+</div>
+</div>
+</div>
+<!-- Bento Grid Metrics -->
+<div class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-gutter">
+<!-- Retrieval Quality Card -->
+<div class="bg-surface-container border border-outline-variant p-6 rounded-xl relative overflow-hidden group">
+<div class="flex justify-between items-start mb-4">
+<span class="text-label-mono font-label-mono text-on-surface-variant uppercase">Retrieval Quality</span>
+<span class="material-symbols-outlined text-primary" data-icon="analytics">analytics</span>
+</div>
+<div class="flex items-baseline gap-2">
+<span class="text-[42px] font-bold text-primary tracking-tight">92%</span>
+<span class="text-tertiary text-caption font-caption flex items-center"><span class="material-symbols-outlined text-[14px]" data-icon="arrow_upward">arrow_upward</span> 2.4%</span>
+</div>
+<div class="mt-6 h-1 w-full bg-surface-variant rounded-full overflow-hidden">
+<div class="h-full bg-primary" style="width: 92%"></div>
+</div>
+<p class="mt-3 text-caption font-caption text-on-surface-variant">Top-K relevance score across 1.2k queries.</p>
+</div>
+<!-- Citation Coverage Card -->
+<div class="bg-surface-container border border-outline-variant p-6 rounded-xl group">
+<div class="flex justify-between items-start mb-4">
+<span class="text-label-mono font-label-mono text-on-surface-variant uppercase">Citation Coverage</span>
+<span class="material-symbols-outlined text-secondary" data-icon="menu_book">menu_book</span>
+</div>
+<div class="flex items-baseline gap-2">
+<span class="text-[42px] font-bold text-secondary tracking-tight">88%</span>
+<span class="text-error text-caption font-caption flex items-center"><span class="material-symbols-outlined text-[14px]" data-icon="arrow_downward">arrow_downward</span> 0.5%</span>
+</div>
+<div class="mt-6 h-1 w-full bg-surface-variant rounded-full overflow-hidden">
+<div class="h-full bg-secondary" style="width: 88%"></div>
+</div>
+<p class="mt-3 text-caption font-caption text-on-surface-variant">Verified claims matched to source chunks.</p>
+</div>
+<!-- Guardrail Pass Rate Card -->
+<div class="bg-surface-container border border-outline-variant p-6 rounded-xl">
+<div class="flex justify-between items-start mb-4">
+<span class="text-label-mono font-label-mono text-on-surface-variant uppercase">Guardrail Pass Rate</span>
+<span class="material-symbols-outlined text-tertiary" data-icon="shield_check">shield</span>
+</div>
+<div class="flex items-baseline gap-2">
+<span class="text-[42px] font-bold text-tertiary tracking-tight">100%</span>
+<span class="text-tertiary text-caption font-caption flex items-center">STABLE</span>
+</div>
+<div class="mt-6 h-1 w-full bg-surface-variant rounded-full overflow-hidden">
+<div class="h-full bg-tertiary" style="width: 100%"></div>
+</div>
+<p class="mt-3 text-caption font-caption text-on-surface-variant">Zero toxicity or leakage detected this session.</p>
+</div>
+<!-- Confidence Trends Mini Chart -->
+<div class="bg-surface-container border border-outline-variant p-6 rounded-xl flex flex-col">
+<div class="flex justify-between items-start mb-2">
+<span class="text-label-mono font-label-mono text-on-surface-variant uppercase">Confidence Trend</span>
+</div>
+<div class="flex-1 flex items-end gap-1 pt-4">
+<div class="bg-primary/20 hover:bg-primary/40 transition-all w-full rounded-t-sm h-[40%]"></div>
+<div class="bg-primary/20 hover:bg-primary/40 transition-all w-full rounded-t-sm h-[60%]"></div>
+<div class="bg-primary/20 hover:bg-primary/40 transition-all w-full rounded-t-sm h-[55%]"></div>
+<div class="bg-primary/20 hover:bg-primary/40 transition-all w-full rounded-t-sm h-[80%]"></div>
+<div class="bg-primary/20 hover:bg-primary/40 transition-all w-full rounded-t-sm h-[75%]"></div>
+<div class="bg-primary w-full rounded-t-sm h-[95%]"></div>
+<div class="bg-primary/20 hover:bg-primary/40 transition-all w-full rounded-t-sm h-[85%]"></div>
+</div>
+<div class="flex justify-between mt-2">
+<span class="text-[10px] font-label-mono text-outline">T-12H</span>
+<span class="text-[10px] font-label-mono text-outline">NOW</span>
+</div>
+</div>
+</div>
+<!-- Pipeline Visualization Section -->
+<div class="bg-surface-container-high border border-outline-variant rounded-xl p-8">
+<div class="flex justify-between items-center mb-10">
+<h4 class="text-headline-sm font-headline-sm">RAG Pipeline Orchestration</h4>
+<div class="flex gap-4">
+<div class="flex items-center gap-2">
+<span class="w-3 h-3 bg-primary rounded-full"></span>
+<span class="text-caption font-caption text-on-surface-variant">Execution Flow</span>
+</div>
+<div class="flex items-center gap-2">
+<span class="w-3 h-3 border border-outline-variant rounded-full"></span>
+<span class="text-caption font-caption text-on-surface-variant">Pending State</span>
+</div>
+</div>
+</div>
+<div class="relative overflow-x-auto pb-4">
+<div class="flex items-center min-w-[1000px]">
+<!-- Step 1 -->
+<div class="flex flex-col items-center gap-4 relative z-10 w-32 shrink-0">
+<div class="w-12 h-12 rounded-full bg-primary-container border-2 border-primary flex items-center justify-center text-on-primary-container">
+<span class="material-symbols-outlined" data-icon="question_answer">question_answer</span>
+</div>
+<span class="text-label-mono text-[11px] text-center uppercase px-2">User Query</span>
+</div>
+<div class="flex-1 h-[2px] bg-primary relative">
+<div class="absolute -top-[5px] right-0 w-3 h-3 border-t-2 border-r-2 border-primary rotate-45"></div>
+</div>
+<!-- Step 2 -->
+<div class="flex flex-col items-center gap-4 relative z-10 w-32 shrink-0">
+<div class="w-12 h-12 rounded-full bg-primary-container border-2 border-primary flex items-center justify-center text-on-primary-container">
+<span class="material-symbols-outlined" data-icon="psychology">psychology</span>
+</div>
+<span class="text-label-mono text-[11px] text-center uppercase px-2">Understanding</span>
+</div>
+<div class="flex-1 h-[2px] bg-primary relative">
+<div class="absolute -top-[5px] right-0 w-3 h-3 border-t-2 border-r-2 border-primary rotate-45"></div>
+</div>
+<!-- Step 3 -->
+<div class="flex flex-col items-center gap-4 relative z-10 w-32 shrink-0">
+<div class="w-12 h-12 rounded-full bg-primary-container border-2 border-primary flex items-center justify-center text-on-primary-container">
+<span class="material-symbols-outlined" data-icon="storage">storage</span>
+</div>
+<span class="text-label-mono text-[11px] text-center uppercase px-2">Local Retrieval</span>
+</div>
+<div class="flex-1 h-[2px] bg-primary relative">
+<div class="absolute -top-[5px] right-0 w-3 h-3 border-t-2 border-r-2 border-primary rotate-45"></div>
+</div>
+<!-- Step 4 -->
+<div class="flex flex-col items-center gap-4 relative z-10 w-32 shrink-0">
+<div class="w-12 h-12 rounded-full bg-primary-container border-2 border-primary flex items-center justify-center text-on-primary-container">
+<span class="material-symbols-outlined" data-icon="public">public</span>
+</div>
+<span class="text-label-mono text-[11px] text-center uppercase px-2">Wikipedia</span>
+</div>
+<div class="flex-1 h-[2px] bg-primary relative">
+<div class="absolute -top-[5px] right-0 w-3 h-3 border-t-2 border-r-2 border-primary rotate-45"></div>
+</div>
+<!-- Step 5 -->
+<div class="flex flex-col items-center gap-4 relative z-10 w-32 shrink-0">
+<div class="w-12 h-12 rounded-full bg-primary-container border-2 border-primary flex items-center justify-center text-on-primary-container">
+<span class="material-symbols-outlined" data-icon="low_priority">low_priority</span>
+</div>
+<span class="text-label-mono text-[11px] text-center uppercase px-2">Reranking</span>
+</div>
+<div class="flex-1 h-[2px] bg-primary relative">
+<div class="absolute -top-[5px] right-0 w-3 h-3 border-t-2 border-r-2 border-primary rotate-45"></div>
+</div>
+<!-- Step 6 -->
+<div class="flex flex-col items-center gap-4 relative z-10 w-32 shrink-0">
+<div class="w-12 h-12 rounded-full bg-primary-container border-2 border-primary flex items-center justify-center text-on-primary-container">
+<span class="material-symbols-outlined" data-icon="auto_awesome">auto_awesome</span>
+</div>
+<span class="text-label-mono text-[11px] text-center uppercase px-2">Self-RAG</span>
+</div>
+<div class="flex-1 h-[2px] bg-primary relative">
+<div class="absolute -top-[5px] right-0 w-3 h-3 border-t-2 border-r-2 border-primary rotate-45"></div>
+</div>
+<!-- Step 7 -->
+<div class="flex flex-col items-center gap-4 relative z-10 w-32 shrink-0">
+<div class="w-12 h-12 rounded-full bg-tertiary-container border-2 border-tertiary flex items-center justify-center text-on-tertiary-container">
+<span class="material-symbols-outlined" data-icon="verified_user">verified_user</span>
+</div>
+<span class="text-label-mono text-[11px] text-center uppercase px-2">Guardrails</span>
+</div>
+<div class="flex-1 h-[2px] bg-tertiary relative">
+<div class="absolute -top-[5px] right-0 w-3 h-3 border-t-2 border-r-2 border-tertiary rotate-45"></div>
+</div>
+<!-- Step 8 -->
+<div class="flex flex-col items-center gap-4 relative z-10 w-32 shrink-0">
+<div class="w-12 h-12 rounded-full bg-tertiary-container border-2 border-tertiary flex items-center justify-center text-on-tertiary-container shadow-[0_0_15px_rgba(74,225,118,0.3)]">
+<span class="material-symbols-outlined" data-icon="check_circle">check_circle</span>
+</div>
+<span class="text-label-mono text-[11px] text-center uppercase px-2">Final Answer</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Lower Detail Panels -->
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-gutter">
+<!-- Source Node Performance -->
+<div class="bg-surface-container border border-outline-variant rounded-xl overflow-hidden">
+<div class="p-6 border-b border-outline-variant flex justify-between items-center">
+<h5 class="font-bold text-body-lg">Knowledge Source Latency</h5>
+<button class="text-primary text-caption font-caption">View Logs</button>
+</div>
+<div class="p-6 space-y-4">
+<div class="flex items-center gap-4">
+<div class="p-2 bg-surface-variant rounded-md"><span class="material-symbols-outlined text-[18px]" data-icon="folder_zip">folder_zip</span></div>
+<div class="flex-1">
+<div class="flex justify-between text-caption font-caption mb-1">
+<span>Enterprise PDF Cluster</span>
+<span class="text-tertiary">240ms</span>
+</div>
+<div class="w-full h-1.5 bg-surface-variant rounded-full overflow-hidden">
+<div class="h-full bg-primary" style="width: 45%"></div>
+</div>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<div class="p-2 bg-surface-variant rounded-md"><span class="material-symbols-outlined text-[18px]" data-icon="language">language</span></div>
+<div class="flex-1">
+<div class="flex justify-between text-caption font-caption mb-1">
+<span>Wikipedia API (Live)</span>
+<span class="text-on-surface">850ms</span>
+</div>
+<div class="w-full h-1.5 bg-surface-variant rounded-full overflow-hidden">
+<div class="h-full bg-primary" style="width: 85%"></div>
+</div>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<div class="p-2 bg-surface-variant rounded-md"><span class="material-symbols-outlined text-[18px]" data-icon="table_chart">table_chart</span></div>
+<div class="flex-1">
+<div class="flex justify-between text-caption font-caption mb-1">
+<span>Vector SQL Store</span>
+<span class="text-tertiary">110ms</span>
+</div>
+<div class="w-full h-1.5 bg-surface-variant rounded-full overflow-hidden">
+<div class="h-full bg-primary" style="width: 25%"></div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Recent Pipeline Traces -->
+<div class="bg-surface-container border border-outline-variant rounded-xl overflow-hidden">
+<div class="p-6 border-b border-outline-variant flex justify-between items-center">
+<h5 class="font-bold text-body-lg">Active Traces</h5>
+<div class="flex gap-2">
+<span class="px-2 py-0.5 bg-surface-variant text-[10px] rounded text-on-surface-variant uppercase font-label-mono">Live</span>
+</div>
+</div>
+<div class="divide-y divide-outline-variant">
+<div class="p-4 hover:bg-surface-variant/30 transition-colors cursor-pointer flex items-center justify-between">
+<div class="flex gap-3 items-center">
+<span class="text-label-mono text-outline">#TRC-8821</span>
+<span class="text-body-md">Explain quarterly revenue drift...</span>
+</div>
+<div class="flex items-center gap-3">
+<span class="text-caption font-caption text-tertiary">SUCCESS</span>
+<span class="material-symbols-outlined text-[18px] text-outline" data-icon="chevron_right">chevron_right</span>
+</div>
+</div>
+<div class="p-4 hover:bg-surface-variant/30 transition-colors cursor-pointer flex items-center justify-between">
+<div class="flex gap-3 items-center">
+<span class="text-label-mono text-outline">#TRC-8819</span>
+<span class="text-body-md">Latest trends in synthetic biology...</span>
+</div>
+<div class="flex items-center gap-3">
+<span class="text-caption font-caption text-tertiary">SUCCESS</span>
+<span class="material-symbols-outlined text-[18px] text-outline" data-icon="chevron_right">chevron_right</span>
+</div>
+</div>
+<div class="p-4 hover:bg-surface-variant/30 transition-colors cursor-pointer flex items-center justify-between">
+<div class="flex gap-3 items-center">
+<span class="text-label-mono text-outline">#TRC-8815</span>
+<span class="text-body-md">Compliance rules for GDPR-v2...</span>
+</div>
+<div class="flex items-center gap-3">
+<span class="text-caption font-caption text-secondary">PROCESSING</span>
+<span class="material-symbols-outlined text-[18px] text-outline animate-spin" data-icon="sync">sync</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Detailed Visual Analysis -->
+<div class="grid grid-cols-1 md:grid-cols-2 gap-gutter">
+<div class="bg-surface-container border border-outline-variant rounded-xl p-6">
+<h5 class="font-bold text-body-lg mb-6">Hallucination Heatmap</h5>
+<div class="aspect-video w-full rounded-lg bg-surface-container-low border border-outline-variant p-4 relative overflow-hidden">
+<img class="absolute inset-0 w-full h-full object-cover opacity-20 mix-blend-overlay" data-alt="A sophisticated data visualization dashboard showing complex heatmap patterns in deep blue and glowing neon cyan. The aesthetic is highly technical, resembling a mission control interface with various data points and grid lines. The lighting is low and cinematic, emphasizing the luminescent data structures." src="https://lh3.googleusercontent.com/aida-public/AB6AXuALppg9uMSDjReR2s09Sw5a8fApgfGBVD4dXuBdMtlE07liD-X0ezMTcrgBIAzVLw4nJ_rbj2bNA9zpwGL3qCx2p7B_n23ZYBtdaQ6sw6NIdahgOZsxM6LJMsxUUT8kCTpJLWa-5iglM5ElGYww83OuprEFcEFYk1aKPGooyCxaHab17riPGN_8p1B9OcE0EmpBnW1ynqx_t_EvUu-p08m9xFgAMeTeTzv1nn-FwxJRiZpjxLp7_wYnMeuQj1T52zleXYyZgZWmMw"/>
+<div class="relative z-10 grid grid-cols-8 grid-rows-4 gap-2 h-full">
+<!-- Simulated Heatmap Squares -->
+<div class="bg-primary/10 border border-primary/20 rounded"></div>
+<div class="bg-primary/20 border border-primary/30 rounded"></div>
+<div class="bg-primary/5 border border-primary/10 rounded"></div>
+<div class="bg-primary/40 border border-primary/50 rounded"></div>
+<div class="bg-primary/10 border border-primary/20 rounded"></div>
+<div class="bg-primary/10 border border-primary/20 rounded"></div>
+<div class="bg-primary/20 border border-primary/30 rounded"></div>
+<div class="bg-primary/5 border border-primary/10 rounded"></div>
+<div class="bg-primary/30 border border-primary/40 rounded"></div>
+<div class="bg-primary/60 border border-primary/70 rounded"></div>
+<div class="bg-primary/10 border border-primary/20 rounded"></div>
+<div class="bg-primary/10 border border-primary/20 rounded"></div>
+<div class="bg-primary/5 border border-primary/10 rounded"></div>
+<div class="bg-primary/20 border border-primary/30 rounded"></div>
+<div class="bg-primary/10 border border-primary/20 rounded"></div>
+<div class="bg-primary/30 border border-primary/40 rounded"></div>
+<div class="bg-primary/10 border border-primary/20 rounded"></div>
+<div class="bg-primary/10 border border-primary/20 rounded"></div>
+<div class="bg-primary/20 border border-primary/30 rounded"></div>
+<div class="bg-primary/10 border border-primary/20 rounded"></div>
+<div class="bg-secondary/40 border border-secondary/50 rounded"></div>
+<div class="bg-primary/10 border border-primary/20 rounded"></div>
+<div class="bg-primary/10 border border-primary/20 rounded"></div>
+<div class="bg-primary/10 border border-primary/20 rounded"></div>
+<div class="bg-primary/5 border border-primary/10 rounded"></div>
+<div class="bg-primary/10 border border-primary/20 rounded"></div>
+<div class="bg-primary/5 border border-primary/10 rounded"></div>
+<div class="bg-primary/10 border border-primary/20 rounded"></div>
+<div class="bg-primary/5 border border-primary/10 rounded"></div>
+<div class="bg-primary/5 border border-primary/10 rounded"></div>
+<div class="bg-primary/10 border border-primary/20 rounded"></div>
+<div class="bg-primary/5 border border-primary/10 rounded"></div>
+</div>
+</div>
+</div>
+<div class="bg-surface-container border border-outline-variant rounded-xl p-6">
+<h5 class="font-bold text-body-lg mb-6">Token Distribution</h5>
+<div class="aspect-video w-full rounded-lg bg-surface-container-low border border-outline-variant p-4 flex flex-col justify-center">
+<div class="space-y-6">
+<div class="flex items-center gap-4">
+<span class="w-24 text-label-mono text-[10px] text-outline uppercase">Reasoning</span>
+<div class="flex-1 h-8 bg-primary/20 border border-primary/40 rounded flex items-center px-3 relative">
+<div class="absolute inset-y-0 left-0 bg-primary/40 w-[65%]"></div>
+<span class="relative z-10 text-label-mono text-primary font-bold">65.2%</span>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<span class="w-24 text-label-mono text-[10px] text-outline uppercase">Retrieval</span>
+<div class="flex-1 h-8 bg-secondary/20 border border-secondary/40 rounded flex items-center px-3 relative">
+<div class="absolute inset-y-0 left-0 bg-secondary/40 w-[22%]"></div>
+<span class="relative z-10 text-label-mono text-secondary font-bold">21.8%</span>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<span class="w-24 text-label-mono text-[10px] text-outline uppercase">Formatting</span>
+<div class="flex-1 h-8 bg-tertiary/20 border border-tertiary/40 rounded flex items-center px-3 relative">
+<div class="absolute inset-y-0 left-0 bg-tertiary/40 w-[13%]"></div>
+<span class="relative z-10 text-label-mono text-tertiary font-bold">13.0%</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</main>
+</body></html>

@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&amp;family=JetBrains+Mono:wght@500&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        body {
+            background-color: #051424;
+            color: #d4e4fa;
+        }
+    </style>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "surface-variant": "#273647",
+                        "tertiary": "#4ae176",
+                        "surface": "#051424",
+                        "on-primary-fixed-variant": "#004c6e",
+                        "inverse-surface": "#d4e4fa",
+                        "tertiary-fixed-dim": "#4ae176",
+                        "outline": "#88929b",
+                        "surface-container": "#122131",
+                        "on-primary-container": "#003751",
+                        "on-error": "#690005",
+                        "error-container": "#93000a",
+                        "on-tertiary-fixed-variant": "#005321",
+                        "on-secondary": "#1000a9",
+                        "on-tertiary": "#003915",
+                        "error": "#ffb4ab",
+                        "primary-fixed": "#c9e6ff",
+                        "surface-dim": "#051424",
+                        "background": "#051424",
+                        "on-tertiary-container": "#003c16",
+                        "outline-variant": "#3e4850",
+                        "surface-bright": "#2c3a4c",
+                        "on-error-container": "#ffdad6",
+                        "surface-tint": "#89ceff",
+                        "on-secondary-fixed-variant": "#2f2ebe",
+                        "primary-container": "#0ea5e9",
+                        "surface-container-highest": "#273647",
+                        "tertiary-container": "#00b351",
+                        "surface-container-high": "#1c2b3c",
+                        "inverse-primary": "#006591",
+                        "secondary-container": "#3131c0",
+                        "on-primary": "#00344d",
+                        "secondary-fixed-dim": "#c0c1ff",
+                        "surface-container-lowest": "#010f1f",
+                        "on-primary-fixed": "#001e2f",
+                        "tertiary-fixed": "#6bff8f",
+                        "on-background": "#d4e4fa",
+                        "secondary": "#c0c1ff",
+                        "on-surface-variant": "#bec8d2",
+                        "on-surface": "#d4e4fa",
+                        "primary": "#89ceff",
+                        "on-tertiary-fixed": "#002109",
+                        "surface-container-low": "#0d1c2d",
+                        "primary-fixed-dim": "#89ceff",
+                        "on-secondary-fixed": "#07006c",
+                        "inverse-on-surface": "#233143",
+                        "on-secondary-container": "#b0b2ff",
+                        "secondary-fixed": "#e1e0ff"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "container-max": "1440px",
+                        "gutter": "16px",
+                        "unit": "8px",
+                        "margin-mobile": "16px",
+                        "margin-desktop": "32px"
+                    },
+                    "fontFamily": {
+                        "caption": ["Inter"],
+                        "headline-md": ["Inter"],
+                        "display-lg": ["Inter"],
+                        "body-lg": ["Inter"],
+                        "headline-sm": ["Inter"],
+                        "body-md": ["Inter"],
+                        "display-lg-mobile": ["Inter"],
+                        "label-mono": ["JetBrains Mono"]
+                    },
+                    "fontSize": {
+                        "caption": ["12px", {"lineHeight": "16px", "fontWeight": "500"}],
+                        "headline-md": ["24px", {"lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600"}],
+                        "display-lg": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                        "body-lg": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                        "headline-sm": ["20px", {"lineHeight": "28px", "fontWeight": "600"}],
+                        "body-md": ["14px", {"lineHeight": "20px", "fontWeight": "400"}],
+                        "display-lg-mobile": ["28px", {"lineHeight": "36px", "fontWeight": "700"}],
+                        "label-mono": ["12px", {"lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "500"}]
+                    }
+                },
+            },
+        }
+    </script>
+</head>
+<body class="flex overflow-hidden">
+<!-- SideNavBar -->
+<aside class="docked left-0 h-screen w-72 bg-surface-container-low dark:bg-surface-container-lowest border-r border-outline-variant dark:border-outline-variant flex flex-col h-full p-gutter z-50">
+<div class="flex items-center gap-3 mb-10 px-2">
+<div class="w-10 h-10 rounded bg-primary flex items-center justify-center">
+<span class="material-symbols-outlined text-on-primary">memory</span>
+</div>
+<div>
+<h1 class="text-headline-sm font-headline-sm font-bold text-primary dark:text-primary-fixed">Agentic RAG</h1>
+<p class="text-label-mono font-label-mono text-on-surface-variant text-[10px]">Precision Intelligence</p>
+</div>
+</div>
+<button class="w-full py-3 mb-8 bg-primary-container text-on-primary-container rounded-lg font-bold flex items-center justify-center gap-2 hover:opacity-90 transition-opacity">
+<span class="material-symbols-outlined">add</span>
+            New Chat
+        </button>
+<nav class="flex-grow space-y-1">
+<a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant dark:text-on-surface-variant hover:bg-surface-variant dark:hover:bg-surface-container-highest transition-colors rounded-lg" href="#">
+<span class="material-symbols-outlined" data-icon="search">search</span>
+<span class="text-label-mono font-label-mono uppercase tracking-wider">Search</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant dark:text-on-surface-variant hover:bg-surface-variant dark:hover:bg-surface-container-highest transition-colors rounded-lg" href="#">
+<span class="material-symbols-outlined" data-icon="history">history</span>
+<span class="text-label-mono font-label-mono uppercase tracking-wider">Chat History</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-primary dark:text-primary-fixed font-bold border-r-2 border-primary bg-surface-variant/50" href="#">
+<span class="material-symbols-outlined" data-icon="database">database</span>
+<span class="text-label-mono font-label-mono uppercase tracking-wider">Knowledge Base</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant dark:text-on-surface-variant hover:bg-surface-variant dark:hover:bg-surface-container-highest transition-colors rounded-lg" href="#">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+<span class="text-label-mono font-label-mono uppercase tracking-wider">Settings</span>
+</a>
+</nav>
+<div class="mt-auto pt-4 border-t border-outline-variant space-y-1">
+<a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:bg-surface-variant rounded-lg transition-colors" href="#">
+<span class="material-symbols-outlined" data-icon="description">description</span>
+<span class="text-label-mono font-label-mono uppercase tracking-wider text-[11px]">Documentation</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:bg-surface-variant rounded-lg transition-colors" href="#">
+<span class="material-symbols-outlined" data-icon="help">help</span>
+<span class="text-label-mono font-label-mono uppercase tracking-wider text-[11px]">Support</span>
+</a>
+</div>
+</aside>
+<div class="flex-grow flex flex-col min-w-0 overflow-y-auto">
+<!-- TopAppBar -->
+<header class="docked full-width top-0 bg-surface dark:bg-surface-dim border-b border-outline-variant dark:border-outline-variant flex justify-between items-center w-full px-margin-desktop h-16 shrink-0 z-40">
+<div class="flex items-center gap-8">
+<span class="text-headline-md font-headline-md font-black text-on-surface dark:text-on-surface">Knowledge Base</span>
+<nav class="hidden md:flex gap-6">
+<a class="text-on-surface-variant dark:text-on-surface-variant hover:text-primary dark:hover:text-primary-fixed transition-all text-body-md font-body-md" href="#">Hybrid</a>
+<a class="text-on-surface-variant dark:text-on-surface-variant hover:text-primary dark:hover:text-primary-fixed transition-all text-body-md font-body-md" href="#">Sources</a>
+<a class="text-on-surface-variant dark:text-on-surface-variant hover:text-primary dark:hover:text-primary-fixed transition-all text-body-md font-body-md" href="#">Generation</a>
+</nav>
+</div>
+<div class="flex items-center gap-4">
+<button class="px-4 py-1.5 border border-outline-variant rounded text-on-surface hover:bg-surface-variant transition-colors text-body-md font-medium">Technical Insights</button>
+<div class="flex items-center gap-2">
+<button class="p-2 text-on-surface-variant hover:text-primary transition-all"><span class="material-symbols-outlined" data-icon="tune">tune</span></button>
+<button class="p-2 text-on-surface-variant hover:text-primary transition-all relative">
+<span class="material-symbols-outlined" data-icon="notifications">notifications</span>
+<span class="absolute top-2 right-2 w-2 h-2 bg-error rounded-full"></span>
+</button>
+<button class="p-2 text-on-surface-variant hover:text-primary transition-all"><span class="material-symbols-outlined" data-icon="account_circle">account_circle</span></button>
+</div>
+</div>
+</header>
+<!-- Main Content -->
+<main class="p-margin-desktop max-w-container-max mx-auto w-full space-y-8">
+<!-- Stats Header -->
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+<div class="bg-surface-container border border-outline-variant p-6 rounded-xl flex flex-col gap-2">
+<div class="flex justify-between items-start">
+<span class="text-on-surface-variant text-label-mono font-label-mono uppercase tracking-widest text-[10px]">Total Index</span>
+<span class="material-symbols-outlined text-primary" data-icon="description">description</span>
+</div>
+<div class="text-display-lg font-display-lg text-on-surface">1,240</div>
+<div class="text-caption font-caption text-tertiary flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]">arrow_upward</span>
+                        Documents indexed
+                    </div>
+</div>
+<div class="bg-surface-container border border-outline-variant p-6 rounded-xl flex flex-col gap-2">
+<div class="flex justify-between items-start">
+<span class="text-on-surface-variant text-label-mono font-label-mono uppercase tracking-widest text-[10px]">Data Density</span>
+<span class="material-symbols-outlined text-primary" data-icon="segment">segment</span>
+</div>
+<div class="text-display-lg font-display-lg text-on-surface">8,500</div>
+<div class="text-caption font-caption text-on-surface-variant flex items-center gap-1">
+                        Chunks generated
+                    </div>
+</div>
+<div class="bg-surface-container border border-outline-variant p-6 rounded-xl flex flex-col gap-2">
+<div class="flex justify-between items-start">
+<span class="text-on-surface-variant text-label-mono font-label-mono uppercase tracking-widest text-[10px]">Latency</span>
+<span class="material-symbols-outlined text-tertiary" data-icon="speed">speed</span>
+</div>
+<div class="text-display-lg font-display-lg text-on-surface">124ms</div>
+<div class="text-caption font-caption text-on-surface-variant flex items-center gap-1">
+                        Avg. retrieval time
+                    </div>
+</div>
+<div class="bg-surface-container border border-outline-variant p-6 rounded-xl flex flex-col gap-2">
+<div class="flex justify-between items-start">
+<span class="text-on-surface-variant text-label-mono font-label-mono uppercase tracking-widest text-[10px]">Accuracy</span>
+<span class="material-symbols-outlined text-primary" data-icon="verified">verified</span>
+</div>
+<div class="text-display-lg font-display-lg text-on-surface">98.2%</div>
+<div class="text-caption font-caption text-on-surface-variant flex items-center gap-1">
+                        Citation precision
+                    </div>
+</div>
+</div>
+<!-- Bento Config Grid -->
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+<!-- Local Corpus Status -->
+<div class="lg:col-span-2 bg-surface-container border border-outline-variant rounded-xl p-8 relative overflow-hidden">
+<div class="absolute top-0 right-0 w-64 h-64 bg-primary opacity-5 rounded-full -mr-20 -mt-20 blur-3xl"></div>
+<div class="relative z-10">
+<div class="flex justify-between items-center mb-6">
+<h3 class="text-headline-sm font-headline-sm text-on-surface">Local Corpus Status</h3>
+<div class="flex items-center gap-2 bg-tertiary/10 px-3 py-1 rounded-full">
+<div class="w-2 h-2 bg-tertiary rounded-full animate-pulse"></div>
+<span class="text-tertiary text-caption font-label-mono uppercase tracking-tight">Active Sync</span>
+</div>
+</div>
+<div class="grid grid-cols-2 gap-8">
+<div class="space-y-4">
+<div class="space-y-1">
+<p class="text-label-mono font-label-mono text-on-surface-variant text-[10px] uppercase">Storage Used</p>
+<div class="flex items-end gap-2">
+<span class="text-headline-md text-on-surface">4.2 GB</span>
+<span class="text-on-surface-variant text-caption pb-1">/ 10 GB</span>
+</div>
+<div class="w-full bg-surface-variant h-1.5 rounded-full overflow-hidden">
+<div class="bg-primary h-full w-[42%] rounded-full"></div>
+</div>
+</div>
+<div class="space-y-1 pt-4">
+<p class="text-label-mono font-label-mono text-on-surface-variant text-[10px] uppercase">File Types</p>
+<div class="flex gap-2">
+<span class="bg-surface-variant text-on-surface px-2 py-1 rounded text-[11px] font-label-mono">PDF</span>
+<span class="bg-surface-variant text-on-surface px-2 py-1 rounded text-[11px] font-label-mono">MD</span>
+<span class="bg-surface-variant text-on-surface px-2 py-1 rounded text-[11px] font-label-mono">DOCX</span>
+</div>
+</div>
+</div>
+<div class="space-y-4">
+<div class="flex flex-col items-center justify-center border-l border-outline-variant pl-8 h-full">
+<div class="w-full text-left space-y-4">
+<div class="flex items-center justify-between">
+<span class="text-body-md text-on-surface-variant">Last Full Re-index</span>
+<span class="text-body-md text-on-surface font-medium">12h ago</span>
+</div>
+<div class="flex items-center justify-between">
+<span class="text-body-md text-on-surface-variant">Embedded Chunks</span>
+<span class="text-body-md text-on-surface font-medium">1.4M</span>
+</div>
+<button class="w-full py-2 border border-primary text-primary text-caption font-bold rounded uppercase tracking-widest hover:bg-primary/5 transition-colors">Force Re-index</button>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Wikipedia Retrieval Settings -->
+<div class="bg-surface-container border border-outline-variant rounded-xl p-6 flex flex-col">
+<div class="flex items-center gap-3 mb-6">
+<div class="w-10 h-10 rounded-lg bg-surface-variant flex items-center justify-center">
+<span class="material-symbols-outlined text-on-surface" data-icon="language">language</span>
+</div>
+<div>
+<h3 class="text-body-lg font-bold text-on-surface leading-tight">Wikipedia Retrieval</h3>
+<p class="text-caption text-on-surface-variant">Global Knowledge Bridge</p>
+</div>
+</div>
+<div class="space-y-5 flex-grow">
+<div class="flex items-center justify-between">
+<span class="text-body-md text-on-surface">Enable Live Fetch</span>
+<div class="w-12 h-6 bg-primary rounded-full relative flex items-center px-1">
+<div class="w-4 h-4 bg-on-primary rounded-full ml-auto"></div>
+</div>
+</div>
+<div class="space-y-2">
+<label class="text-label-mono font-label-mono text-[10px] text-on-surface-variant uppercase">Language Priority</label>
+<select class="w-full bg-surface-variant border-none rounded text-on-surface text-body-md">
+<option>English (Primary)</option>
+<option>Multilingual (Standard)</option>
+</select>
+</div>
+<div class="space-y-2">
+<label class="text-label-mono font-label-mono text-[10px] text-on-surface-variant uppercase">Max Tokens Per Hit</label>
+<div class="flex items-center gap-4">
+<input class="flex-grow accent-primary" max="2048" min="128" type="range" value="512"/>
+<span class="text-label-mono text-primary">512</span>
+</div>
+</div>
+</div>
+<div class="mt-6 pt-6 border-t border-outline-variant">
+<div class="flex items-center justify-between text-caption">
+<span class="text-on-surface-variant">API Usage</span>
+<span class="text-on-surface">2,401 / 10,000 requests</span>
+</div>
+</div>
+</div>
+<!-- Chunking Strategy Card -->
+<div class="bg-surface-container border border-outline-variant rounded-xl p-6">
+<div class="flex items-center justify-between mb-6">
+<h3 class="text-body-lg font-bold text-on-surface">Chunking Strategy</h3>
+<span class="material-symbols-outlined text-on-surface-variant" data-icon="grid_view">grid_view</span>
+</div>
+<div class="p-4 bg-surface-dim border border-outline-variant rounded-lg space-y-3 mb-6">
+<div class="flex items-center justify-between">
+<span class="text-caption text-on-surface-variant">Strategy</span>
+<span class="text-caption text-primary font-bold">Semantic Recursive</span>
+</div>
+<div class="flex items-center justify-between">
+<span class="text-caption text-on-surface-variant">Overlap</span>
+<span class="text-caption text-on-surface">15% (75 tokens)</span>
+</div>
+<div class="flex items-center justify-between">
+<span class="text-caption text-on-surface-variant">Encoder</span>
+<span class="text-caption text-on-surface">text-embedding-3</span>
+</div>
+</div>
+<button class="w-full py-2 bg-surface-variant text-on-surface text-caption font-bold rounded flex items-center justify-center gap-2 hover:bg-surface-bright transition-colors">
+                        Configure Chunks
+                    </button>
+</div>
+<!-- Reranking Configuration -->
+<div class="lg:col-span-2 bg-surface-container border border-outline-variant rounded-xl p-6">
+<div class="flex flex-col md:flex-row md:items-center gap-8">
+<div class="md:w-1/3">
+<h3 class="text-body-lg font-bold text-on-surface mb-2">Reranking Engine</h3>
+<p class="text-body-md text-on-surface-variant mb-4">Post-retrieval optimization using Cross-Encoders for maximal relevance.</p>
+<div class="inline-flex items-center gap-2 px-3 py-1 bg-secondary-container/20 rounded-full">
+<span class="material-symbols-outlined text-secondary text-[16px]" data-icon="bolt">bolt</span>
+<span class="text-secondary text-[11px] font-bold uppercase tracking-wider">Cohere v3 Active</span>
+</div>
+</div>
+<div class="flex-grow grid grid-cols-2 md:grid-cols-3 gap-4">
+<div class="bg-surface-dim border border-outline-variant p-4 rounded-lg flex flex-col items-center gap-2">
+<span class="text-label-mono text-[10px] text-on-surface-variant uppercase">Top K</span>
+<span class="text-headline-sm text-on-surface">25</span>
+</div>
+<div class="bg-surface-dim border border-outline-variant p-4 rounded-lg flex flex-col items-center gap-2">
+<span class="text-label-mono text-[10px] text-on-surface-variant uppercase">Threshold</span>
+<span class="text-headline-sm text-on-surface">0.72</span>
+</div>
+<div class="bg-surface-dim border border-outline-variant p-4 rounded-lg flex flex-col items-center gap-2">
+<span class="text-label-mono text-[10px] text-on-surface-variant uppercase">Diversity</span>
+<span class="text-headline-sm text-on-surface">MMR</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Knowledge Sources Table -->
+<div class="bg-surface-container border border-outline-variant rounded-xl overflow-hidden">
+<div class="p-6 border-b border-outline-variant flex justify-between items-center">
+<h3 class="text-headline-sm font-headline-sm text-on-surface">Knowledge Sources</h3>
+<div class="flex gap-3">
+<div class="relative">
+<span class="material-symbols-outlined absolute left-3 top-2.5 text-on-surface-variant text-[20px]">search</span>
+<input class="pl-10 bg-surface-dim border border-outline-variant rounded text-body-md py-2 w-64 focus:ring-1 focus:ring-primary outline-none" placeholder="Filter sources..." type="text"/>
+</div>
+<button class="bg-primary text-on-primary px-4 py-2 rounded font-bold text-body-md flex items-center gap-2">
+<span class="material-symbols-outlined text-[20px]">add</span>
+                            Add Source
+                        </button>
+</div>
+</div>
+<div class="overflow-x-auto">
+<table class="w-full text-left">
+<thead class="bg-surface-container-high border-b border-outline-variant">
+<tr>
+<th class="px-6 py-4 text-label-mono font-label-mono text-[11px] text-on-surface-variant uppercase tracking-widest">Source</th>
+<th class="px-6 py-4 text-label-mono font-label-mono text-[11px] text-on-surface-variant uppercase tracking-widest">Type</th>
+<th class="px-6 py-4 text-label-mono font-label-mono text-[11px] text-on-surface-variant uppercase tracking-widest">Status</th>
+<th class="px-6 py-4 text-label-mono font-label-mono text-[11px] text-on-surface-variant uppercase tracking-widest">Last Used</th>
+<th class="px-6 py-4 text-label-mono font-label-mono text-[11px] text-on-surface-variant uppercase tracking-widest">Citation Support</th>
+<th class="px-6 py-4 text-label-mono font-label-mono text-[11px] text-on-surface-variant uppercase tracking-widest">Actions</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-outline-variant">
+<tr class="hover:bg-surface-variant/30 transition-colors">
+<td class="px-6 py-4">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-primary" data-icon="folder_zip">folder_zip</span>
+<span class="text-body-md font-medium text-on-surface">Legal_Archive_2023.zip</span>
+</div>
+</td>
+<td class="px-6 py-4">
+<span class="text-body-md text-on-surface-variant">Local</span>
+</td>
+<td class="px-6 py-4">
+<div class="flex items-center gap-2">
+<div class="w-2 h-2 rounded-full bg-tertiary"></div>
+<span class="text-body-md text-on-surface">Indexed</span>
+</div>
+</td>
+<td class="px-6 py-4">
+<span class="text-body-md text-on-surface-variant">2 mins ago</span>
+</td>
+<td class="px-6 py-4">
+<span class="px-2 py-0.5 bg-tertiary/10 text-tertiary rounded text-[10px] font-bold uppercase tracking-wider">Full Support</span>
+</td>
+<td class="px-6 py-4">
+<button class="text-on-surface-variant hover:text-on-surface"><span class="material-symbols-outlined">more_vert</span></button>
+</td>
+</tr>
+<tr class="hover:bg-surface-variant/30 transition-colors">
+<td class="px-6 py-4">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-on-surface-variant" data-icon="language">language</span>
+<span class="text-body-md font-medium text-on-surface">en.wikipedia.org</span>
+</div>
+</td>
+<td class="px-6 py-4">
+<span class="text-body-md text-on-surface-variant">Wikipedia</span>
+</td>
+<td class="px-6 py-4">
+<div class="flex items-center gap-2">
+<div class="w-2 h-2 rounded-full bg-tertiary"></div>
+<span class="text-body-md text-on-surface">Indexed</span>
+</div>
+</td>
+<td class="px-6 py-4">
+<span class="text-body-md text-on-surface-variant">14 mins ago</span>
+</td>
+<td class="px-6 py-4">
+<span class="px-2 py-0.5 bg-primary/10 text-primary rounded text-[10px] font-bold uppercase tracking-wider">Link Only</span>
+</td>
+<td class="px-6 py-4">
+<button class="text-on-surface-variant hover:text-on-surface"><span class="material-symbols-outlined">more_vert</span></button>
+</td>
+</tr>
+<tr class="hover:bg-surface-variant/30 transition-colors">
+<td class="px-6 py-4">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-primary" data-icon="description">description</span>
+<span class="text-body-md font-medium text-on-surface">System_Architecture_v4.pdf</span>
+</div>
+</td>
+<td class="px-6 py-4">
+<span class="text-body-md text-on-surface-variant">Local</span>
+</td>
+<td class="px-6 py-4">
+<div class="flex items-center gap-2">
+<div class="w-2 h-2 rounded-full bg-surface-variant"></div>
+<span class="text-body-md text-on-surface-variant italic">Indexing (84%)</span>
+</div>
+</td>
+<td class="px-6 py-4">
+<span class="text-body-md text-on-surface-variant">Never</span>
+</td>
+<td class="px-6 py-4">
+<span class="px-2 py-0.5 bg-outline-variant/30 text-on-surface-variant rounded text-[10px] font-bold uppercase tracking-wider">Pending</span>
+</td>
+<td class="px-6 py-4">
+<button class="text-on-surface-variant hover:text-on-surface"><span class="material-symbols-outlined">more_vert</span></button>
+</td>
+</tr>
+<tr class="hover:bg-surface-variant/30 transition-colors">
+<td class="px-6 py-4">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-primary" data-icon="link">link</span>
+<span class="text-body-md font-medium text-on-surface">Internal_Wiki_Confluence</span>
+</div>
+</td>
+<td class="px-6 py-4">
+<span class="text-body-md text-on-surface-variant">API Connector</span>
+</td>
+<td class="px-6 py-4">
+<div class="flex items-center gap-2">
+<div class="w-2 h-2 rounded-full bg-tertiary"></div>
+<span class="text-body-md text-on-surface">Indexed</span>
+</div>
+</td>
+<td class="px-6 py-4">
+<span class="text-body-md text-on-surface-variant">1 hour ago</span>
+</td>
+<td class="px-6 py-4">
+<span class="px-2 py-0.5 bg-tertiary/10 text-tertiary rounded text-[10px] font-bold uppercase tracking-wider">Full Support</span>
+</td>
+<td class="px-6 py-4">
+<button class="text-on-surface-variant hover:text-on-surface"><span class="material-symbols-outlined">more_vert</span></button>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="px-6 py-4 border-t border-outline-variant bg-surface-container-high/50 flex items-center justify-between">
+<span class="text-caption text-on-surface-variant">Showing 4 of 24 sources</span>
+<div class="flex gap-2">
+<button class="p-1 border border-outline-variant rounded hover:bg-surface-variant disabled:opacity-50" disabled=""><span class="material-symbols-outlined">chevron_left</span></button>
+<button class="p-1 border border-outline-variant rounded hover:bg-surface-variant"><span class="material-symbols-outlined">chevron_right</span></button>
+</div>
+</div>
+</div>
+</main>
+</div>
+</body></html>

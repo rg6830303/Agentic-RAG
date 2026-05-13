@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&amp;family=JetBrains+Mono:wght@500&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "surface-variant": "#273647",
+                    "tertiary": "#4ae176",
+                    "surface": "#051424",
+                    "on-primary-fixed-variant": "#004c6e",
+                    "inverse-surface": "#d4e4fa",
+                    "tertiary-fixed-dim": "#4ae176",
+                    "outline": "#88929b",
+                    "surface-container": "#122131",
+                    "on-primary-container": "#003751",
+                    "on-error": "#690005",
+                    "error-container": "#93000a",
+                    "on-tertiary-fixed-variant": "#005321",
+                    "on-secondary": "#1000a9",
+                    "on-tertiary": "#003915",
+                    "error": "#ffb4ab",
+                    "primary-fixed": "#c9e6ff",
+                    "surface-dim": "#051424",
+                    "background": "#051424",
+                    "on-tertiary-container": "#003c16",
+                    "outline-variant": "#3e4850",
+                    "surface-bright": "#2c3a4c",
+                    "on-error-container": "#ffdad6",
+                    "surface-tint": "#89ceff",
+                    "on-secondary-fixed-variant": "#2f2ebe",
+                    "primary-container": "#0ea5e9",
+                    "surface-container-highest": "#273647",
+                    "tertiary-container": "#00b351",
+                    "surface-container-high": "#1c2b3c",
+                    "inverse-primary": "#006591",
+                    "secondary-container": "#3131c0",
+                    "on-primary": "#00344d",
+                    "secondary-fixed-dim": "#c0c1ff",
+                    "surface-container-lowest": "#010f1f",
+                    "on-primary-fixed": "#001e2f",
+                    "tertiary-fixed": "#6bff8f",
+                    "on-background": "#d4e4fa",
+                    "secondary": "#c0c1ff",
+                    "on-surface-variant": "#bec8d2",
+                    "on-surface": "#d4e4fa",
+                    "primary": "#89ceff",
+                    "on-tertiary-fixed": "#002109",
+                    "surface-container-low": "#0d1c2d",
+                    "primary-fixed-dim": "#89ceff",
+                    "on-secondary-fixed": "#07006c",
+                    "inverse-on-surface": "#233143",
+                    "on-secondary-container": "#b0b2ff",
+                    "secondary-fixed": "#e1e0ff"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.25rem",
+                    "lg": "0.5rem",
+                    "xl": "0.75rem",
+                    "full": "9999px"
+            },
+            "spacing": {
+                    "container-max": "1440px",
+                    "gutter": "16px",
+                    "unit": "8px",
+                    "margin-mobile": "16px",
+                    "margin-desktop": "32px"
+            },
+            "fontFamily": {
+                    "caption": ["Inter"],
+                    "headline-md": ["Inter"],
+                    "display-lg": ["Inter"],
+                    "body-lg": ["Inter"],
+                    "headline-sm": ["Inter"],
+                    "body-md": ["Inter"],
+                    "display-lg-mobile": ["Inter"],
+                    "label-mono": ["JetBrains Mono"]
+            },
+            "fontSize": {
+                    "caption": ["12px", {"lineHeight": "16px", "fontWeight": "500"}],
+                    "headline-md": ["24px", {"lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600"}],
+                    "display-lg": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                    "body-lg": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                    "headline-sm": ["20px", {"lineHeight": "28px", "fontWeight": "600"}],
+                    "body-md": ["14px", {"lineHeight": "20px", "fontWeight": "400"}],
+                    "display-lg-mobile": ["28px", {"lineHeight": "36px", "fontWeight": "700"}],
+                    "label-mono": ["12px", {"lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "500"}]
+            }
+          },
+        },
+      }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .hide-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .hide-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-surface text-on-surface font-body-md overflow-hidden">
+<!-- TopAppBar -->
+<header class="fixed top-0 z-40 w-full h-16 flex justify-between items-center px-4 bg-surface dark:bg-surface-dim border-b border-outline-variant dark:border-outline-variant">
+<div class="flex items-center gap-4">
+<button class="p-2 text-on-surface-variant hover:bg-surface-variant rounded-lg transition-colors">
+<span class="material-symbols-outlined">menu</span>
+</button>
+<h1 class="text-headline-md font-headline-md font-black text-on-surface dark:text-on-surface">Agentic RAG</h1>
+</div>
+<div class="flex items-center gap-2">
+<button class="flex items-center gap-1 px-3 py-1.5 bg-surface-container-high rounded-lg text-primary text-caption font-bold border border-outline-variant">
+<span class="material-symbols-outlined text-[18px]">tune</span>
+<span class="hidden sm:inline">Technical Insights</span>
+</button>
+<button class="p-2 text-on-surface-variant hover:text-primary dark:hover:text-primary-fixed transition-all">
+<span class="material-symbols-outlined">account_circle</span>
+</button>
+</div>
+</header>
+<!-- SideNavBar (Drawer Hidden on Mobile by default, but conceptually here) -->
+<!-- This is simulated as hidden for this view, but accessible via hamburger -->
+<main class="flex h-screen pt-16">
+<!-- Main Chat Canvas -->
+<section class="flex-1 flex flex-col relative h-full bg-surface-container-lowest">
+<!-- Chat Thread -->
+<div class="flex-1 overflow-y-auto px-4 py-6 space-y-8 hide-scrollbar">
+<!-- System/AI Response Message -->
+<div class="max-w-3xl mx-auto space-y-4">
+<div class="flex items-start gap-3">
+<div class="w-8 h-8 rounded bg-primary flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-on-primary text-[20px]">smart_toy</span>
+</div>
+<div class="space-y-4">
+<p class="text-body-lg font-body-lg text-on-surface">
+                                Based on the hybrid search retrieval, the agent has synthesized the following architectural overview of the current node-graph infrastructure.
+                            </p>
+<div class="bg-surface-container rounded-xl p-4 border border-outline-variant space-y-3">
+<h3 class="text-headline-sm font-headline-sm text-primary">System Architecture Analysis</h3>
+<p class="text-body-md font-body-md text-on-surface-variant">
+                                    The RAG pipeline utilizes a vector-optimized embedding model paired with a semantic reranker. This ensures that the context window is populated with the most relevant technical documents [1] [2].
+                                </p>
+<!-- Citations Chips -->
+<div class="flex flex-wrap gap-2 pt-2">
+<div class="flex items-center gap-1.5 px-2 py-1 bg-surface-variant rounded-md border border-outline-variant cursor-pointer hover:bg-surface-bright transition-colors">
+<span class="material-symbols-outlined text-[14px]">description</span>
+<span class="font-label-mono text-label-mono">DOC_082</span>
+</div>
+<div class="flex items-center gap-1.5 px-2 py-1 bg-surface-variant rounded-md border border-outline-variant cursor-pointer hover:bg-surface-bright transition-colors">
+<span class="material-symbols-outlined text-[14px]">database</span>
+<span class="font-label-mono text-label-mono">SCHEMA_V2</span>
+</div>
+</div>
+</div>
+<div class="flex items-center gap-4 pt-2">
+<button class="text-on-surface-variant hover:text-primary transition-colors flex items-center gap-1">
+<span class="material-symbols-outlined text-[18px]">thumb_up</span>
+</button>
+<button class="text-on-surface-variant hover:text-primary transition-colors flex items-center gap-1">
+<span class="material-symbols-outlined text-[18px]">thumb_down</span>
+</button>
+<button class="text-on-surface-variant hover:text-primary transition-colors flex items-center gap-1">
+<span class="material-symbols-outlined text-[18px]">content_copy</span>
+</button>
+</div>
+</div>
+</div>
+</div>
+<!-- User Message -->
+<div class="max-w-3xl mx-auto flex justify-end">
+<div class="bg-primary-container text-on-primary-container px-4 py-3 rounded-2xl rounded-tr-none max-w-[85%]">
+<p class="text-body-md font-body-md">Can you explain the latency impact of the semantic reranker step in this pipeline?</p>
+</div>
+</div>
+<!-- Loading/Thinking State -->
+<div class="max-w-3xl mx-auto flex items-start gap-3">
+<div class="w-8 h-8 rounded bg-primary flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-on-primary text-[20px]">smart_toy</span>
+</div>
+<div class="flex gap-1 items-center pt-3">
+<div class="w-1.5 h-1.5 bg-primary rounded-full animate-pulse"></div>
+<div class="w-1.5 h-1.5 bg-primary rounded-full animate-pulse delay-75"></div>
+<div class="w-1.5 h-1.5 bg-primary rounded-full animate-pulse delay-150"></div>
+<span class="text-label-mono font-label-mono text-primary ml-2 uppercase tracking-widest">reasoning...</span>
+</div>
+</div>
+</div>
+<!-- Prompt Composer Pinned to Bottom -->
+<div class="p-4 bg-surface-container-low border-t border-outline-variant">
+<div class="max-w-3xl mx-auto relative group">
+<textarea class="w-full bg-surface-container-highest border border-outline-variant rounded-2xl py-4 pl-4 pr-14 text-on-surface focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary resize-none placeholder:text-outline" placeholder="Message Agentic RAG..." rows="1"></textarea>
+<div class="absolute right-3 bottom-3 flex items-center gap-2">
+<button class="p-2 text-on-surface-variant hover:text-primary transition-colors">
+<span class="material-symbols-outlined">attach_file</span>
+</button>
+<button class="bg-primary text-on-primary p-2 rounded-xl shadow-lg shadow-primary/20 hover:brightness-110 active:scale-95 transition-all">
+<span class="material-symbols-outlined">send</span>
+</button>
+</div>
+</div>
+<!-- Status Pill -->
+<div class="max-w-3xl mx-auto mt-2 flex justify-center">
+<div class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-tertiary/10 border border-tertiary/20">
+<div class="w-1.5 h-1.5 rounded-full bg-tertiary"></div>
+<span class="text-label-mono font-label-mono text-[10px] text-tertiary uppercase">Real-time indexing active</span>
+</div>
+</div>
+</div>
+</section>
+</main>
+<!-- Contextual FAB (Hidden on this transactional/focused chat screen as per mandate) -->
+<!-- <div class="fixed bottom-24 right-4 ..."> ... </div> -->
+<!-- Mobile Bottom Navigation (Hidden on primary chat to maximize focus) -->
+<!-- Included here as reference but suppressed per mandate for "Task-Focused" pages -->
+<nav class="sm:hidden fixed bottom-0 w-full h-16 bg-surface-container border-t border-outline-variant grid grid-cols-4 items-center hidden">
+<div class="flex flex-col items-center gap-1 text-primary border-t-2 border-primary pt-1">
+<span class="material-symbols-outlined">chat</span>
+<span class="text-label-mono font-label-mono">Chat</span>
+</div>
+<div class="flex flex-col items-center gap-1 text-on-surface-variant">
+<span class="material-symbols-outlined">search</span>
+<span class="text-label-mono font-label-mono">Search</span>
+</div>
+<div class="flex flex-col items-center gap-1 text-on-surface-variant">
+<span class="material-symbols-outlined">history</span>
+<span class="text-label-mono font-label-mono">History</span>
+</div>
+<div class="flex flex-col items-center gap-1 text-on-surface-variant">
+<span class="material-symbols-outlined">settings</span>
+<span class="text-label-mono font-label-mono">Settings</span>
+</div>
+</nav>
+<!-- Background Image for depth (Visual Flourish) -->
+<div class="fixed inset-0 -z-10 opacity-5 pointer-events-none">
+<div class="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,_rgba(137,206,255,0.1),transparent_70%)]"></div>
+<div class="absolute bottom-0 left-0 w-full h-64 bg-gradient-to-t from-primary/10 to-transparent"></div>
+</div>
+</body></html>

@@ -33,6 +33,9 @@ class VercelApiTests(unittest.TestCase):
         self.assertIn(b"Advanced Agentic RAG", root.body)
         self.assertIn(b"requestSubmit", root.body)
         self.assertIn(b"data-pending-response", root.body)
+        self.assertIn(b"Knowledge Base", root.body)
+        self.assertIn(b"Evaluation &amp; Diagnostics", root.body)
+        self.assertIn(b"localStorage", root.body)
         self.assertEqual(health_check()["status"], "ok")
 
     def test_corpus_is_available_to_vercel_api(self) -> None:

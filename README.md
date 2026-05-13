@@ -5,7 +5,7 @@ This repository is a Vercel-native FastAPI application with a built-in dark blue
 ## Highlights
 
 - Vercel-ready FastAPI app at `app.py`
-- Production-style dark blue browser chat UI served from `/`
+- Stitch-inspired production dark blue browser chat UI served from `/`
 - Enter-to-send prompt composer; use Shift+Enter for multiline prompts
 - Saved chat sidebar with new chat, resume, clone, agenda, suggestions, and local browser fallback
 - RAG API at `/api/chat` and `/api/query`
@@ -27,6 +27,19 @@ This repository is a Vercel-native FastAPI application with a built-in dark blue
 - Duplicate sends are blocked while retrieval/generation is running.
 - Loading feedback shows a retrieval/generation state while the RAG pipeline runs.
 - Empty state prompt chips help start common workflows such as summarizing the corpus, comparing retrieved sources, or asking for Wikipedia-backed context.
+
+## Stitch UI Integration
+
+The current UI is integrated from the Google Stitch export in `design/stitch-export/stitch_agentic_rag_enterprise_interface/`. The FastAPI app still serves a single HTML/CSS/JS shell from `app.py` for Vercel compatibility, but the visual system, navigation, chat layout, knowledge base cards, source viewer treatment, and diagnostics styling follow the Stitch screens and `DESIGN.md` tokens.
+
+Stitch screens used:
+
+- `agentic_rag_active_chat_2`
+- `agentic_rag_new_chat`
+- `agentic_rag_knowledge_base_2`
+- `agentic_rag_diagnostics_2`
+- `agentic_rag_source_viewer`
+- `agentic_rag_mobile_chat_2`
 
 ## Saved Chats
 
