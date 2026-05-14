@@ -450,7 +450,8 @@ def _auth_secret() -> bytes:
 
 
 def _secure_auth_cookie() -> bool:
-    return bool(os.getenv("VERCEL") or os.getenv("APP_ENV", "").lower() == "production")
+    vercel = os.getenv("VERCEL", "").lower()
+    return vercel in ("1", "true", "yes") or os.getenv("APP_ENV", "").lower() == "production"
 
 
 def _production_runtime() -> bool:
@@ -535,24 +536,26 @@ def _decode_session_token(token: str) -> dict[str, Any] | None:
 
 
 def _set_auth_cookie(response: Response, user: dict[str, Any]) -> None:
+    secure_cookie = _secure_auth_cookie()
     response.set_cookie(
         AUTH_COOKIE_NAME,
         _session_token_for_user(user),
         max_age=AUTH_SESSION_SECONDS,
         httponly=True,
-        secure=_secure_auth_cookie(),
-        samesite="lax",
+        secure=secure_cookie,
+        samesite="none" if secure_cookie else "lax",
         path="/",
     )
-    LOGGER.info("Auth session cookie set user_id=%s secure=%s", user.get("id"), _secure_auth_cookie())
+    LOGGER.info("Auth session cookie set user_id=%s secure=%s same_site=%s", user.get("id"), secure_cookie, "none" if secure_cookie else "lax")
 
 
 def _clear_auth_cookie(response: Response) -> None:
+    secure_cookie = _secure_auth_cookie()
     response.delete_cookie(
         AUTH_COOKIE_NAME,
         httponly=True,
-        secure=_secure_auth_cookie(),
-        samesite="lax",
+        secure=secure_cookie,
+        samesite="none" if secure_cookie else "lax",
         path="/",
     )
 
@@ -3081,6 +3084,7 @@ APP_HTML = """<!doctype html>
       background: rgba(56, 189, 248, 0.16);
     }
     .auth-form { display: grid; gap: 12px; }
+    .auth-form [hidden] { display: none !important; }
     .auth-form label,
     .account-card {
       display: grid;
@@ -4268,10 +4272,10 @@ APP_HTML = """<!doctype html>
         <p>Sign in to keep your RAG conversations, memory, citations, and source traces isolated to your account.</p>
       </div>
       <div class="auth-tabs" role="tablist" aria-label="Authentication">
-        <button class="auth-tab active" id="loginTab" type="button" data-auth-mode="login">Login</button>
-        <button class="auth-tab" id="signupTab" type="button" data-auth-mode="signup">Sign up</button>
+        <button class="auth-tab active" id="loginTab" type="button" role="tab" aria-selected="true" data-auth-mode="login">Login</button>
+        <button class="auth-tab" id="signupTab" type="button" role="tab" aria-selected="false" data-auth-mode="signup">Sign up</button>
       </div>
-      <form class="auth-form" id="authForm">
+      <form class="auth-form" id="authForm" data-auth-mode="login" novalidate>
         <label id="displayNameLabel" hidden>Name
           <input id="authName" autocomplete="name" placeholder="Your name">
         </label>
@@ -4612,18 +4616,30 @@ APP_HTML = """<!doctype html>
       return "Request failed. Please try again.";
     }
 
+    function setVisible(element, visible) {
+      if (!element) return;
+      element.hidden = !visible;
+      element.setAttribute("aria-hidden", visible ? "false" : "true");
+    }
+
     function setAuthMode(mode) {
-      state.authMode = mode;
+      const nextMode = mode === "signup" ? "signup" : "login";
+      state.authMode = nextMode;
+      const form = $("#authForm");
+      if (form) form.dataset.authMode = nextMode;
       $$(".auth-tab").forEach((button) => {
-        button.classList.toggle("active", button.dataset.authMode === mode);
+        const active = button.dataset.authMode === nextMode;
+        button.classList.toggle("active", active);
+        button.setAttribute("aria-selected", active ? "true" : "false");
       });
-      $("#displayNameLabel").hidden = mode !== "signup";
-      $("#confirmPasswordLabel").hidden = mode !== "signup";
-      $("#authSubmit").textContent = mode === "signup" ? "Create Account" : "Login";
-      $("#authPassword").setAttribute("autocomplete", mode === "signup" ? "new-password" : "current-password");
-      $("#authPasswordConfirm").value = "";
-      $("#authSwitchLead").textContent = mode === "signup" ? "Already have an account?" : "New here?";
-      $("#authModeSwitch").textContent = mode === "signup" ? "Login" : "Create an account";
+      setVisible($("#displayNameLabel"), nextMode === "signup");
+      setVisible($("#confirmPasswordLabel"), nextMode === "signup");
+      $("#authSubmit").textContent = nextMode === "signup" ? "Sign Up" : "Login";
+      $("#authPassword").setAttribute("autocomplete", nextMode === "signup" ? "new-password" : "current-password");
+      $("#authPasswordConfirm").required = nextMode === "signup";
+      if (nextMode !== "signup") $("#authPasswordConfirm").value = "";
+      $("#authSwitchLead").textContent = nextMode === "signup" ? "Already have an account?" : "Don't have an account?";
+      $("#authModeSwitch").textContent = nextMode === "signup" ? "Log in" : "Create account";
       setAuthMessage(state.authNotice, state.authNotice ? "warn" : "");
       validateAuthForm();
     }
@@ -4692,6 +4708,12 @@ APP_HTML = """<!doctype html>
         setAuthMessage("");
       }
       return !message;
+    }
+
+    function resetAuthLoading() {
+      state.authLoading = false;
+      $("#authSubmit").textContent = state.authMode === "signup" ? "Sign Up" : "Login";
+      validateAuthForm();
     }
 
     function showAuthenticatedApp(user) {
@@ -5861,26 +5883,7 @@ APP_HTML = """<!doctype html>
       renderSessionList();
     }
 
-    $$(".auth-tab").forEach((button) => {
-      button.addEventListener("click", () => setAuthMode(button.dataset.authMode));
-    });
-
-    $("#authModeSwitch").addEventListener("click", () => {
-      setAuthMode(state.authMode === "signup" ? "login" : "signup");
-      $("#authEmail").focus();
-    });
-
-    ["#authName", "#authEmail", "#authPassword", "#authPasswordConfirm"].forEach((selector) => {
-      $(selector).addEventListener("input", () => {
-        if (!state.authLoading) {
-          state.authNotice = "";
-          setAuthMessage("");
-        }
-        validateAuthForm();
-      });
-    });
-
-    $("#authForm").addEventListener("submit", async (event) => {
+    async function submitAuthForm(event) {
       event.preventDefault();
       if (state.authLoading || !validateAuthForm({ showMessage: true })) return;
       state.authLoading = true;
@@ -5908,10 +5911,43 @@ APP_HTML = """<!doctype html>
       } catch (error) {
         setAuthMessage(error.message);
       } finally {
-        state.authLoading = false;
-        $("#authSubmit").textContent = state.authMode === "signup" ? "Create Account" : "Login";
-        validateAuthForm();
+        resetAuthLoading();
       }
+    }
+
+    function initializeAuthUi() {
+      const form = $("#authForm");
+      const switchButton = $("#authModeSwitch");
+      $$(".auth-tab").forEach((button) => {
+        button.addEventListener("click", () => {
+          setAuthMode(button.dataset.authMode);
+          $("#authEmail").focus();
+        });
+      });
+      switchButton.addEventListener("click", () => {
+        setAuthMode(state.authMode === "signup" ? "login" : "signup");
+        $("#authEmail").focus();
+      });
+      ["#authName", "#authEmail", "#authPassword", "#authPasswordConfirm"].forEach((selector) => {
+        const field = $(selector);
+        field.addEventListener("input", () => {
+          if (!state.authLoading) {
+            state.authNotice = "";
+            setAuthMessage("");
+          }
+          validateAuthForm();
+        });
+        field.addEventListener("change", () => validateAuthForm());
+      });
+      form.addEventListener("submit", submitAuthForm);
+      setAuthMode("login");
+      window.__authUiInitialized = true;
+    }
+
+    initializeAuthUi();
+    bootstrapAuth().catch((error) => {
+      $("#badges").innerHTML = badge(error.message, "bad");
+      showAuthGate(error.message || "Could not check your session. Please sign in again.");
     });
 
     $("#logoutButton").addEventListener("click", async () => {
@@ -6044,11 +6080,6 @@ APP_HTML = """<!doctype html>
     syncResponsivePanels();
     state.responsiveReady = true;
 
-    setAuthMode("login");
-    bootstrapAuth().catch((error) => {
-      $("#badges").innerHTML = badge(error.message, "bad");
-      showAuthGate(error.message || "Could not check your session. Please sign in again.");
-    });
     bindPromptButtons();
   </script>
 </body>
