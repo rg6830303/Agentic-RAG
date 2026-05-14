@@ -43,6 +43,7 @@ AUTH_COOKIE_NAME = os.getenv("AUTH_COOKIE_NAME", "agentic_rag_session")
 AUTH_SESSION_SECONDS = 60 * 60 * 24 * 7
 PASSWORD_HASH_ITERATIONS = 260_000
 DEV_AUTH_SECRET = secrets.token_urlsafe(48)
+AUTH_SESSION_SECRET_SETTING = "auth_session_secret"
 WIKIPEDIA_API_URL = "https://en.wikipedia.org/w/api.php"
 WIKIPEDIA_USER_AGENT = "Agentic-RAG/0.3 (https://github.com/rg6830303/Agentic-RAG)"
 WIKIPEDIA_TIMEOUT_SECONDS = 4
@@ -406,11 +407,25 @@ def _verify_password(password: str, password_hash: str) -> bool:
     return hmac.compare_digest(actual, expected)
 
 
+def _database_auth_secret() -> str | None:
+    try:
+        store = get_account_store(required=False)
+        if store is None:
+            return None
+        return store.get_or_create_auth_secret()
+    except Exception as exc:  # pragma: no cover - defensive for deployed database interruptions.
+        LOGGER.warning("Could not load database-backed auth secret: %s", exc.__class__.__name__)
+        return None
+
+
 def _auth_secret() -> bytes:
     secret = os.getenv("SESSION_SECRET") or os.getenv("AUTH_SECRET")
     if secret:
         return secret.encode("utf-8")
-    # Local development fallback only. Production deployments should set SESSION_SECRET.
+    database_secret = _database_auth_secret()
+    if database_secret:
+        return database_secret.encode("utf-8")
+    # Last-resort local fallback only. Production deployments should set SESSION_SECRET.
     return DEV_AUTH_SECRET.encode("utf-8")
 
 
@@ -439,10 +454,15 @@ def _auth_setup_warning() -> str:
     if not _production_runtime():
         return ""
     warnings: list[str] = []
-    if not os.getenv("DATABASE_URL"):
+    has_database_url = bool(os.getenv("DATABASE_URL"))
+    has_env_secret = bool(os.getenv("SESSION_SECRET") or os.getenv("AUTH_SECRET"))
+    if not has_database_url:
         warnings.append("DATABASE_URL is not set, so accounts and chats use temporary server storage.")
-    if not (os.getenv("SESSION_SECRET") or os.getenv("AUTH_SECRET")):
-        warnings.append("SESSION_SECRET is not set, so sessions may reset after a cold start.")
+    if not has_env_secret:
+        if has_database_url:
+            warnings.append("SESSION_SECRET is not set, so the database will keep a generated session signing key.")
+        else:
+            warnings.append("SESSION_SECRET is not set, so sessions may reset with temporary server storage.")
     return " ".join(warnings)
 
 
@@ -1297,11 +1317,47 @@ class AccountStore:
                 suggestions_json TEXT NOT NULL DEFAULT '[]'
             )
             """,
+            """
+            CREATE TABLE IF NOT EXISTS app_settings (
+                setting_key TEXT PRIMARY KEY,
+                setting_value TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """,
             "CREATE INDEX IF NOT EXISTS idx_chat_threads_user_updated ON chat_threads(user_id, updated_at)",
             "CREATE INDEX IF NOT EXISTS idx_chat_messages_thread_created ON chat_messages(thread_id, created_at)",
         ]
         for statement in statements:
             self._execute(statement)
+
+    def get_or_create_auth_secret(self) -> str:
+        row = self._fetchone(
+            "SELECT setting_value FROM app_settings WHERE setting_key = ?",
+            (AUTH_SESSION_SECRET_SETTING,),
+        )
+        if row and str(row.get("setting_value") or ""):
+            return str(row["setting_value"])
+
+        now = _utc_now_iso()
+        secret = secrets.token_urlsafe(48)
+        try:
+            self._execute(
+                """
+                INSERT INTO app_settings (setting_key, setting_value, created_at, updated_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                (AUTH_SESSION_SECRET_SETTING, secret, now, now),
+            )
+        except Exception:
+            row = self._fetchone(
+                "SELECT setting_value FROM app_settings WHERE setting_key = ?",
+                (AUTH_SESSION_SECRET_SETTING,),
+            )
+            if row and str(row.get("setting_value") or ""):
+                return str(row["setting_value"])
+            raise
+        return secret
 
     def create_user(self, email: str, password: str, display_name: str | None = None) -> dict[str, Any]:
         normalized_email = _normalize_email(email)
@@ -4513,7 +4569,12 @@ APP_HTML = """<!doctype html>
         }
       });
       const payload = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(errorMessageFromPayload(payload));
+      if (!response.ok) {
+        const error = new Error(errorMessageFromPayload(payload));
+        error.status = response.status;
+        error.payload = payload;
+        throw error;
+      }
       return payload;
     }
 
@@ -4591,6 +4652,14 @@ APP_HTML = """<!doctype html>
       $("#authPasswordConfirm").value = "";
       state.authLoading = false;
       setAuthMessage("");
+    }
+
+    async function verifyAuthenticatedSession() {
+      const payload = await apiFetch("/api/auth/me");
+      if (!payload.authenticated || !payload.user) {
+        throw new Error(payload.message || "Your session cookie could not be verified. Please check auth configuration and try again.");
+      }
+      return payload.user;
     }
 
     function showAuthGate(message = "") {
@@ -5190,6 +5259,10 @@ APP_HTML = """<!doctype html>
           : mergeSessions(payload.sessions || [], localSessions);
         renderSessionList();
       } catch (error) {
+        if (state.currentUser && error.status === 401) {
+          showAuthGate("Your session expired. Please log in again.");
+          return;
+        }
         state.sessions = localSessions;
         renderSessionList();
         if (!state.sessions.length) {
@@ -5775,7 +5848,8 @@ APP_HTML = """<!doctype html>
           method: "POST",
           body: JSON.stringify(body)
         });
-        showAuthenticatedApp(payload.user);
+        const verifiedUser = await verifyAuthenticatedSession();
+        showAuthenticatedApp(verifiedUser || payload.user);
         await loadRuntime();
         renderSession(null);
         renderSessionList();
@@ -5922,7 +5996,7 @@ APP_HTML = """<!doctype html>
     setAuthMode("login");
     bootstrapAuth().catch((error) => {
       $("#badges").innerHTML = badge(error.message, "bad");
-      showAuthGate();
+      showAuthGate(error.message || "Could not check your session. Please sign in again.");
     });
     bindPromptButtons();
   </script>

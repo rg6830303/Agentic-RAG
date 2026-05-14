@@ -95,14 +95,14 @@ Recommended production variables:
 
 The app keeps optional Azure OpenAI variables unchanged. Wikipedia retrieval needs no API key.
 
-Durable production account/chat storage requires both `DATABASE_URL` and `SESSION_SECRET`. If either is absent on Vercel, the public shell still renders and signup/login remain usable in temporary mode, with a visible warning in `/api/runtime` and on the auth screen. Set both variables before relying on accounts for real users.
+Durable production account/chat storage requires `DATABASE_URL`. `SESSION_SECRET` is still recommended so you control session rotation explicitly; if it is missing while a database is configured, the backend stores a generated signing key in the account database so cookies keep working across serverless restarts. If both `DATABASE_URL` and `SESSION_SECRET` are absent on Vercel, the public shell still renders and signup/login remain usable in temporary mode, with a visible warning in `/api/runtime` and on the auth screen. Set both variables before relying on accounts for real users.
 
 ## Auth Troubleshooting
 
 - If the Signup button is disabled, check that the email is valid, the password is at least 8 characters, and the confirmation password matches.
 - If signup/login returns a setup error, open `/api/runtime` and check `auth.setup_warning`, `persistence.error`, and `persistence.reachable`.
 - If `DATABASE_URL` is missing on Vercel, accounts are temporary and may disappear after a cold start.
-- If `SESSION_SECRET` is missing on Vercel, users may need to log in again after a cold start.
+- If `SESSION_SECRET` is missing on Vercel but `DATABASE_URL` is configured, the app uses a database-backed generated signing key. Add `SESSION_SECRET` when you want to rotate or pin that key yourself.
 - If the database is configured but unreachable, auth endpoints return JSON errors instead of raw stack traces.
 
 ## Wikipedia Text Retrieval

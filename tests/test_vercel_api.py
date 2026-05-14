@@ -55,6 +55,7 @@ class VercelApiTests(unittest.TestCase):
         self.assertIn(b"authPasswordConfirm", root.body)
         self.assertIn(b"validateAuthForm", root.body)
         self.assertIn(b"authModeSwitch", root.body)
+        self.assertIn(b"verifyAuthenticatedSession", root.body)
         self.assertIn(b"Create an account", root.body)
         self.assertEqual(health_check()["status"], "ok")
 
@@ -127,6 +128,43 @@ class VercelApiTests(unittest.TestCase):
                 app_module.account_store = original_store
                 app_module.ACCOUNT_STORE_ERROR = original_error
                 app_module.EPHEMERAL_APP_DB_PATH = original_ephemeral_path
+
+    def test_database_backed_fallback_session_secret_survives_restart(self) -> None:
+        original_store = app_module.account_store
+        original_error = app_module.ACCOUNT_STORE_ERROR
+        original_dev_secret = app_module.DEV_AUTH_SECRET
+        app_module.account_store = None
+        app_module.ACCOUNT_STORE_ERROR = ""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_url = f"sqlite:///{Path(tmpdir) / 'auth.db'}"
+            try:
+                with patch.dict(os.environ, {"VERCEL": "1", "DATABASE_URL": db_url}, clear=True):
+                    client = TestClient(root_app, base_url="https://testserver")
+                    signup = client.post(
+                        "/api/auth/signup",
+                        json={
+                            "email": "stable-secret@example.com",
+                            "password": "correct horse battery staple",
+                            "display_name": "Stable Secret",
+                        },
+                    )
+                    self.assertEqual(signup.status_code, 200)
+                    first_secret = app_module.account_store.get_or_create_auth_secret()  # type: ignore[union-attr]
+                    self.assertTrue(first_secret)
+
+                    app_module.account_store = None
+                    app_module.DEV_AUTH_SECRET = "different-dev-secret-after-restart"
+                    me = client.get("/api/auth/me")
+                    self.assertEqual(me.status_code, 200)
+                    self.assertTrue(me.json()["authenticated"])
+                    self.assertEqual(
+                        app_module.get_account_store(required=True).get_or_create_auth_secret(),  # type: ignore[union-attr]
+                        first_secret,
+                    )
+            finally:
+                app_module.account_store = original_store
+                app_module.ACCOUNT_STORE_ERROR = original_error
+                app_module.DEV_AUTH_SECRET = original_dev_secret
 
     def test_auth_buttons_report_backend_setup_errors(self) -> None:
         original_store = app_module.account_store
@@ -306,6 +344,19 @@ class VercelApiTests(unittest.TestCase):
                 stored_user = app_module.account_store.get_user_by_email("alice@example.com")
                 self.assertIsNotNone(stored_user)
                 self.assertNotIn("correct horse battery staple", str(stored_user))
+
+                me = alice.get("/api/auth/me")
+                self.assertEqual(me.status_code, 200)
+                self.assertTrue(me.json()["authenticated"])
+                logout = alice.post("/api/auth/logout")
+                self.assertEqual(logout.status_code, 200)
+                self.assertFalse(alice.get("/api/auth/me").json()["authenticated"])
+                relogin = alice.post(
+                    "/api/auth/login",
+                    json={"email": "alice@example.com", "password": "correct horse battery staple"},
+                )
+                self.assertEqual(relogin.status_code, 200)
+                self.assertTrue(relogin.json()["authenticated"])
 
                 created = alice.post("/api/chats", json={"session_name": "Alice thread"})
                 self.assertEqual(created.status_code, 200)
