@@ -54,6 +54,8 @@ class VercelApiTests(unittest.TestCase):
         self.assertIn(b"data-action=\"details\"", root.body)
         self.assertIn(b"authPasswordConfirm", root.body)
         self.assertIn(b"validateAuthForm", root.body)
+        self.assertIn(b"authModeSwitch", root.body)
+        self.assertIn(b"Create an account", root.body)
         self.assertEqual(health_check()["status"], "ok")
 
     def test_corpus_is_available_to_vercel_api(self) -> None:

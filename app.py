@@ -3040,6 +3040,22 @@ APP_HTML = """<!doctype html>
     .auth-error { min-height: 20px; color: var(--rose); font-size: 13px; }
     .auth-error.success { color: var(--green); }
     .auth-error.warn { color: var(--amber); }
+    .auth-switch {
+      margin-top: -4px;
+      color: var(--muted);
+      font-size: 13px;
+      text-align: center;
+    }
+    .auth-switch button {
+      min-height: 32px;
+      border: 0;
+      background: transparent;
+      color: var(--cyan);
+      cursor: pointer;
+      font-weight: 800;
+      padding: 0 4px;
+    }
+    .auth-switch button:hover { text-decoration: underline; }
     .account-card {
       margin-top: 14px;
       padding: 12px;
@@ -4199,6 +4215,10 @@ APP_HTML = """<!doctype html>
         </label>
         <button class="primary" id="authSubmit" type="submit">Login</button>
         <p class="auth-error" id="authError" aria-live="polite"></p>
+        <p class="auth-switch" id="authSwitchText">
+          <span id="authSwitchLead">New here?</span>
+          <button id="authModeSwitch" type="button">Create an account</button>
+        </p>
       </form>
     </div>
   </section>
@@ -4520,6 +4540,8 @@ APP_HTML = """<!doctype html>
       $("#authSubmit").textContent = mode === "signup" ? "Create Account" : "Login";
       $("#authPassword").setAttribute("autocomplete", mode === "signup" ? "new-password" : "current-password");
       $("#authPasswordConfirm").value = "";
+      $("#authSwitchLead").textContent = mode === "signup" ? "Already have an account?" : "New here?";
+      $("#authModeSwitch").textContent = mode === "signup" ? "Login" : "Create an account";
       setAuthMessage(state.authNotice, state.authNotice ? "warn" : "");
       validateAuthForm();
     }
@@ -5717,6 +5739,11 @@ APP_HTML = """<!doctype html>
 
     $$(".auth-tab").forEach((button) => {
       button.addEventListener("click", () => setAuthMode(button.dataset.authMode));
+    });
+
+    $("#authModeSwitch").addEventListener("click", () => {
+      setAuthMode(state.authMode === "signup" ? "login" : "signup");
+      $("#authEmail").focus();
     });
 
     ["#authName", "#authEmail", "#authPassword", "#authPasswordConfirm"].forEach((selector) => {
