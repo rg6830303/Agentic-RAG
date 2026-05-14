@@ -12,6 +12,7 @@ import platform
 import re
 import secrets
 import sqlite3
+import tempfile
 import time
 from collections import Counter, defaultdict
 from dataclasses import dataclass
@@ -35,6 +36,7 @@ CORPUS_DIR = ROOT_DIR / "data" / "sample_corpus"
 GOLDEN_EVAL_PATH = ROOT_DIR / "data" / "golden_eval" / "ncert_physics_golden.json"
 CHAT_HISTORY_DIR = ROOT_DIR / "data" / "chat_history"
 APP_DB_PATH = ROOT_DIR / "data" / "agentic_rag_app.sqlite3"
+EPHEMERAL_APP_DB_PATH = Path(tempfile.gettempdir()) / "agentic_rag_app.sqlite3"
 SUPPORTED_CORPUS_EXTENSIONS = {".csv", ".json", ".md", ".sql", ".txt"}
 SESSION_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_-]{8,80}$")
 AUTH_COOKIE_NAME = os.getenv("AUTH_COOKIE_NAME", "agentic_rag_session")
@@ -425,19 +427,23 @@ def _configured_database_url() -> str | None:
     if database_url:
         return database_url
     if _production_runtime():
-        return None
+        return f"sqlite:///{EPHEMERAL_APP_DB_PATH}"
     return f"sqlite:///{APP_DB_PATH}"
 
 
 def _auth_setup_error() -> str:
-    missing: list[str] = []
-    if _production_runtime() and not os.getenv("DATABASE_URL"):
-        missing.append("DATABASE_URL")
-    if _production_runtime() and not (os.getenv("SESSION_SECRET") or os.getenv("AUTH_SECRET")):
-        missing.append("SESSION_SECRET")
-    if not missing:
+    return ""
+
+
+def _auth_setup_warning() -> str:
+    if not _production_runtime():
         return ""
-    return f"Auth is not configured. Set {', '.join(missing)} for production deployments."
+    warnings: list[str] = []
+    if not os.getenv("DATABASE_URL"):
+        warnings.append("DATABASE_URL is not set, so accounts and chats use temporary server storage.")
+    if not (os.getenv("SESSION_SECRET") or os.getenv("AUTH_SECRET")):
+        warnings.append("SESSION_SECRET is not set, so sessions may reset after a cold start.")
+    return " ".join(warnings)
 
 
 def _auth_unavailable_exception(detail: str | None = None) -> HTTPException:
@@ -1840,10 +1846,13 @@ def get_account_store(required: bool = True) -> AccountStore | None:
 def _account_store_status(check_reachable: bool = False) -> dict[str, Any]:
     database_url = _configured_database_url()
     store = account_store
+    uses_ephemeral_sqlite = _production_runtime() and not os.getenv("DATABASE_URL")
     status: dict[str, Any] = {
         "database": (
             "postgres"
             if database_url and database_url.startswith(("postgres://", "postgresql://"))
+            else "sqlite_ephemeral"
+            if uses_ephemeral_sqlite
             else "sqlite"
             if database_url
             else "unconfigured"
@@ -1851,9 +1860,12 @@ def _account_store_status(check_reachable: bool = False) -> dict[str, Any]:
         "database_url_configured": bool(os.getenv("DATABASE_URL")),
         "database_configured": bool(database_url),
         "production_runtime": _production_runtime(),
+        "durable": bool(os.getenv("DATABASE_URL")) or not _production_runtime(),
+        "ephemeral": uses_ephemeral_sqlite,
         "available": store is not None,
         "reachable": None,
         "error": ACCOUNT_STORE_ERROR or _auth_setup_error(),
+        "warning": _auth_setup_warning(),
     }
     if not check_reachable:
         return status
@@ -3026,6 +3038,8 @@ APP_HTML = """<!doctype html>
       padding: 11px 12px;
     }
     .auth-error { min-height: 20px; color: var(--rose); font-size: 13px; }
+    .auth-error.success { color: var(--green); }
+    .auth-error.warn { color: var(--amber); }
     .account-card {
       margin-top: 14px;
       padding: 12px;
@@ -4180,6 +4194,9 @@ APP_HTML = """<!doctype html>
         <label>Password
           <input id="authPassword" type="password" autocomplete="current-password" placeholder="At least 8 characters" required>
         </label>
+        <label id="confirmPasswordLabel" hidden>Confirm password
+          <input id="authPasswordConfirm" type="password" autocomplete="new-password" placeholder="Repeat password">
+        </label>
         <button class="primary" id="authSubmit" type="submit">Login</button>
         <p class="auth-error" id="authError" aria-live="polite"></p>
       </form>
@@ -4449,6 +4466,8 @@ APP_HTML = """<!doctype html>
       chatSearch: "",
       currentUser: null,
       authMode: "login",
+      authLoading: false,
+      authNotice: "",
       detailsTurn: null
     };
     const LOCAL_CHAT_KEY = "agentic_rag_chats_v1";
@@ -4474,8 +4493,21 @@ APP_HTML = """<!doctype html>
         }
       });
       const payload = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(payload.detail || payload.message || "Request failed");
+      if (!response.ok) throw new Error(errorMessageFromPayload(payload));
       return payload;
+    }
+
+    function errorMessageFromPayload(payload) {
+      const detail = payload && payload.detail;
+      if (Array.isArray(detail)) {
+        return detail
+          .map((item) => item && (item.msg || item.message || item.type))
+          .filter(Boolean)
+          .join(" ") || "Please check the form and try again.";
+      }
+      if (typeof detail === "string" && detail.trim()) return detail;
+      if (payload && typeof payload.message === "string" && payload.message.trim()) return payload.message;
+      return "Request failed. Please try again.";
     }
 
     function setAuthMode(mode) {
@@ -4484,9 +4516,49 @@ APP_HTML = """<!doctype html>
         button.classList.toggle("active", button.dataset.authMode === mode);
       });
       $("#displayNameLabel").hidden = mode !== "signup";
+      $("#confirmPasswordLabel").hidden = mode !== "signup";
       $("#authSubmit").textContent = mode === "signup" ? "Create Account" : "Login";
       $("#authPassword").setAttribute("autocomplete", mode === "signup" ? "new-password" : "current-password");
-      $("#authError").textContent = "";
+      $("#authPasswordConfirm").value = "";
+      setAuthMessage(state.authNotice, state.authNotice ? "warn" : "");
+      validateAuthForm();
+    }
+
+    function setAuthMessage(message = "", kind = "") {
+      const target = $("#authError");
+      target.textContent = message || "";
+      target.classList.toggle("success", kind === "success");
+      target.classList.toggle("warn", kind === "warn");
+    }
+
+    function isValidEmail(value) {
+      return /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(String(value || "").trim());
+    }
+
+    function getAuthValidationError() {
+      const email = $("#authEmail").value.trim();
+      const password = $("#authPassword").value;
+      const confirm = $("#authPasswordConfirm").value;
+      if (!isValidEmail(email)) return "Enter a valid email address.";
+      if (!password) return "Enter your password.";
+      if (state.authMode === "signup") {
+        if (password.length < 8) return "Password must be at least 8 characters.";
+        if (confirm !== password) return "Passwords must match.";
+      }
+      return "";
+    }
+
+    function validateAuthForm({ showMessage = false } = {}) {
+      const message = getAuthValidationError();
+      $("#authSubmit").disabled = state.authLoading || Boolean(message);
+      if (showMessage && message) {
+        setAuthMessage(message);
+      } else if (!state.authLoading && state.authNotice && !message) {
+        setAuthMessage(state.authNotice, "warn");
+      } else if (!state.authLoading && !message && $("#authError").classList.contains("warn")) {
+        setAuthMessage("");
+      }
+      return !message;
     }
 
     function showAuthenticatedApp(user) {
@@ -4494,15 +4566,21 @@ APP_HTML = """<!doctype html>
       document.body.classList.remove("auth-required");
       $("#accountEmail").textContent = user.email;
       $("#authPassword").value = "";
-      $("#authError").textContent = "";
+      $("#authPasswordConfirm").value = "";
+      state.authLoading = false;
+      setAuthMessage("");
     }
 
-    function showAuthGate() {
+    function showAuthGate(message = "") {
       state.currentUser = null;
       state.sessions = [];
       state.activeSession = null;
       state.activeSessionId = null;
+      state.authLoading = false;
+      state.authNotice = message && message !== "Signed out." ? message : "";
       document.body.classList.add("auth-required");
+      setAuthMessage(state.authNotice, state.authNotice ? "warn" : "");
+      validateAuthForm();
       renderSession(null);
     }
 
@@ -5629,7 +5707,7 @@ APP_HTML = """<!doctype html>
     async function bootstrapAuth() {
       const payload = await apiFetch("/api/auth/me");
       if (!payload.authenticated || !payload.user) {
-        showAuthGate();
+        showAuthGate(payload.message || "");
         return;
       }
       showAuthenticatedApp(payload.user);
@@ -5641,18 +5719,34 @@ APP_HTML = """<!doctype html>
       button.addEventListener("click", () => setAuthMode(button.dataset.authMode));
     });
 
+    ["#authName", "#authEmail", "#authPassword", "#authPasswordConfirm"].forEach((selector) => {
+      $(selector).addEventListener("input", () => {
+        if (!state.authLoading) {
+          state.authNotice = "";
+          setAuthMessage("");
+        }
+        validateAuthForm();
+      });
+    });
+
     $("#authForm").addEventListener("submit", async (event) => {
       event.preventDefault();
+      if (state.authLoading || !validateAuthForm({ showMessage: true })) return;
+      state.authLoading = true;
       $("#authSubmit").disabled = true;
-      $("#authError").textContent = "";
+      $("#authSubmit").textContent = state.authMode === "signup" ? "Creating..." : "Signing in...";
+      setAuthMessage("");
       try {
+        const body = {
+          email: $("#authEmail").value.trim(),
+          password: $("#authPassword").value
+        };
+        if (state.authMode === "signup") {
+          body.display_name = $("#authName").value.trim();
+        }
         const payload = await apiFetch(state.authMode === "signup" ? "/api/auth/signup" : "/api/auth/login", {
           method: "POST",
-          body: JSON.stringify({
-            email: $("#authEmail").value.trim(),
-            password: $("#authPassword").value,
-            display_name: $("#authName").value.trim()
-          })
+          body: JSON.stringify(body)
         });
         showAuthenticatedApp(payload.user);
         await loadRuntime();
@@ -5660,9 +5754,11 @@ APP_HTML = """<!doctype html>
         renderSessionList();
         $("#question").focus();
       } catch (error) {
-        $("#authError").textContent = error.message;
+        setAuthMessage(error.message);
       } finally {
-        $("#authSubmit").disabled = false;
+        state.authLoading = false;
+        $("#authSubmit").textContent = state.authMode === "signup" ? "Create Account" : "Login";
+        validateAuthForm();
       }
     });
 
@@ -5850,7 +5946,9 @@ def health_check() -> dict[str, Any]:
         "source_count": corpus["source_count"],
         "chunk_count": corpus["chunk_count"],
         "auth_configured": not bool(_auth_setup_error()),
+        "auth_degraded": bool(_auth_setup_warning()),
         "database_configured": bool(_configured_database_url()),
+        "database_url_configured": bool(os.getenv("DATABASE_URL")),
     }
 
 
@@ -5868,6 +5966,7 @@ def runtime_info() -> dict[str, Any]:
             "session_secret_configured": bool(os.getenv("SESSION_SECRET") or os.getenv("AUTH_SECRET")),
             "configured": not bool(_auth_setup_error()),
             "setup_error": _auth_setup_error(),
+            "setup_warning": _auth_setup_warning(),
         },
         "persistence": persistence,
         "azure_openai": _azure_status(),
@@ -5960,7 +6059,7 @@ def auth_me(request: Request) -> AuthResponse:
         return AuthResponse(authenticated=False, user=None, message=setup_error)
     user = current_user_from_request(request)
     if not user:
-        return AuthResponse(authenticated=False, user=None, message="Signed out.")
+        return AuthResponse(authenticated=False, user=None, message=_auth_setup_warning() or "Signed out.")
     return AuthResponse(authenticated=True, user=_public_user(user), message="Signed in.")
 
 

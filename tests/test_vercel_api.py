@@ -52,6 +52,8 @@ class VercelApiTests(unittest.TestCase):
         self.assertIn(b"/api/auth/login", root.body)
         self.assertIn(b"Response Details", root.body)
         self.assertIn(b"data-action=\"details\"", root.body)
+        self.assertIn(b"authPasswordConfirm", root.body)
+        self.assertIn(b"validateAuthForm", root.body)
         self.assertEqual(health_check()["status"], "ok")
 
     def test_corpus_is_available_to_vercel_api(self) -> None:
@@ -82,29 +84,63 @@ class VercelApiTests(unittest.TestCase):
         self.assertTrue(runtime["azure_openai"]["chat_configured"])
         self.assertNotIn("super-secret", str(runtime))
 
-    def test_production_missing_auth_config_degrades_gracefully(self) -> None:
+    def test_production_missing_env_uses_temporary_auth_store(self) -> None:
+        original_store = app_module.account_store
+        original_error = app_module.ACCOUNT_STORE_ERROR
+        original_ephemeral_path = app_module.EPHEMERAL_APP_DB_PATH
+        app_module.account_store = None
+        app_module.ACCOUNT_STORE_ERROR = ""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            app_module.EPHEMERAL_APP_DB_PATH = Path(tmpdir) / "auth.db"
+            try:
+                with patch.dict(os.environ, {"VERCEL": "1"}, clear=True):
+                    client = TestClient(root_app, base_url="https://testserver")
+                    self.assertEqual(client.get("/").status_code, 200)
+                    self.assertEqual(client.get("/api/health").status_code, 200)
+
+                    runtime = client.get("/api/runtime")
+                    self.assertEqual(runtime.status_code, 200)
+                    self.assertFalse(runtime.json()["persistence"]["database_url_configured"])
+                    self.assertTrue(runtime.json()["persistence"]["ephemeral"])
+                    self.assertIn("temporary", runtime.json()["persistence"]["warning"])
+
+                    signup = client.post(
+                        "/api/auth/signup",
+                        json={
+                            "email": "temp-auth@example.com",
+                            "password": "correct horse battery staple",
+                            "display_name": "Temp Auth",
+                        },
+                    )
+                    self.assertEqual(signup.status_code, 200)
+                    self.assertTrue(signup.json()["authenticated"])
+
+                    me = client.get("/api/auth/me")
+                    self.assertEqual(me.status_code, 200)
+                    self.assertTrue(me.json()["authenticated"])
+
+                    created = client.post("/api/chats", json={"session_name": "Temporary thread"})
+                    self.assertEqual(created.status_code, 200)
+            finally:
+                app_module.account_store = original_store
+                app_module.ACCOUNT_STORE_ERROR = original_error
+                app_module.EPHEMERAL_APP_DB_PATH = original_ephemeral_path
+
+    def test_auth_buttons_report_backend_setup_errors(self) -> None:
         original_store = app_module.account_store
         original_error = app_module.ACCOUNT_STORE_ERROR
         app_module.account_store = None
-        app_module.ACCOUNT_STORE_ERROR = ""
+        app_module.ACCOUNT_STORE_ERROR = "Database unavailable"
         try:
-            with patch.dict(os.environ, {"VERCEL": "1"}, clear=True):
+            with patch.dict(os.environ, {"VERCEL": "1"}, clear=True), patch.object(
+                app_module,
+                "AccountStore",
+                side_effect=RuntimeError("boom"),
+            ):
                 client = TestClient(root_app)
-                self.assertEqual(client.get("/").status_code, 200)
-                self.assertEqual(client.get("/api/health").status_code, 200)
-
-                runtime = client.get("/api/runtime")
-                self.assertEqual(runtime.status_code, 200)
-                self.assertFalse(runtime.json()["persistence"]["database_configured"])
-
-                me = client.get("/api/auth/me")
-                self.assertEqual(me.status_code, 200)
-                self.assertFalse(me.json()["authenticated"])
-                self.assertIn("Auth is not configured", me.json()["message"])
-
                 protected = client.get("/api/chats")
                 self.assertEqual(protected.status_code, 503)
-                self.assertIn("Auth is not configured", protected.json()["detail"])
+                self.assertIn("Account persistence is unavailable", protected.json()["detail"])
         finally:
             app_module.account_store = original_store
             app_module.ACCOUNT_STORE_ERROR = original_error

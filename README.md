@@ -80,9 +80,9 @@ Authenticated chat sessions are saved automatically after each answer. Each sess
 
 The UI loads only the signed-in user's sessions in the left sidebar and can resume or clone an older chat. Opening an old thread restores the full transcript and follow-up prompts append to that same thread. Thread memory is built from the agenda, compact older-summary, and recent turns, and is sent only for that active thread so separate chats and separate users do not mix context.
 
-For authenticated users, the backend SQL store is the source of truth. If `DATABASE_URL` points to Postgres, the app uses it for accounts, threads, and messages. Without `DATABASE_URL`, local development falls back to SQLite at `data/agentic_rag_app.sqlite3`; that file is useful locally but is not durable on Vercel serverless deployments. Legacy unauthenticated `/api/chat` calls still use the older file-based history under `data/chat_history/` for backwards compatibility.
+For authenticated users, the backend SQL store is the source of truth. If `DATABASE_URL` points to Postgres, the app uses it for accounts, threads, and messages. Without `DATABASE_URL`, local development falls back to SQLite at `data/agentic_rag_app.sqlite3`. On Vercel without `DATABASE_URL`, the app can run signup/login against temporary `/tmp` SQLite storage so the UI remains usable, but those accounts and chats are not durable and may reset after cold starts. Legacy unauthenticated `/api/chat` calls still use the older file-based history under `data/chat_history/` for backwards compatibility.
 
-On Vercel, the app does not initialize the account database during import. If production auth variables are missing or the database is unreachable, `/` still loads and `/api/health` plus `/api/runtime` still return diagnostic JSON. Authenticated chat endpoints return a friendly `503` setup error instead of crashing the Serverless Function.
+On Vercel, the app does not initialize the account database during import. If the configured database is unreachable, `/` still loads and `/api/health` plus `/api/runtime` still return diagnostic JSON. Authenticated chat endpoints return a friendly setup error instead of crashing the Serverless Function.
 
 ## Persistence And Environment
 
@@ -95,7 +95,15 @@ Recommended production variables:
 
 The app keeps optional Azure OpenAI variables unchanged. Wikipedia retrieval needs no API key.
 
-Production account/chat storage requires both `DATABASE_URL` and `SESSION_SECRET`. If either is absent on Vercel, the public shell still renders, legacy `/api/chat` can still answer stateless requests, and account-backed login/signup/chat-thread APIs report that auth is not configured.
+Durable production account/chat storage requires both `DATABASE_URL` and `SESSION_SECRET`. If either is absent on Vercel, the public shell still renders and signup/login remain usable in temporary mode, with a visible warning in `/api/runtime` and on the auth screen. Set both variables before relying on accounts for real users.
+
+## Auth Troubleshooting
+
+- If the Signup button is disabled, check that the email is valid, the password is at least 8 characters, and the confirmation password matches.
+- If signup/login returns a setup error, open `/api/runtime` and check `auth.setup_warning`, `persistence.error`, and `persistence.reachable`.
+- If `DATABASE_URL` is missing on Vercel, accounts are temporary and may disappear after a cold start.
+- If `SESSION_SECRET` is missing on Vercel, users may need to log in again after a cold start.
+- If the database is configured but unreachable, auth endpoints return JSON errors instead of raw stack traces.
 
 ## Wikipedia Text Retrieval
 
