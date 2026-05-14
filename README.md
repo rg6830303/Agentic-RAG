@@ -82,6 +82,8 @@ The UI loads only the signed-in user's sessions in the left sidebar and can resu
 
 For authenticated users, the backend SQL store is the source of truth. If `DATABASE_URL` points to Postgres, the app uses it for accounts, threads, and messages. Without `DATABASE_URL`, local development falls back to SQLite at `data/agentic_rag_app.sqlite3`; that file is useful locally but is not durable on Vercel serverless deployments. Legacy unauthenticated `/api/chat` calls still use the older file-based history under `data/chat_history/` for backwards compatibility.
 
+On Vercel, the app does not initialize the account database during import. If production auth variables are missing or the database is unreachable, `/` still loads and `/api/health` plus `/api/runtime` still return diagnostic JSON. Authenticated chat endpoints return a friendly `503` setup error instead of crashing the Serverless Function.
+
 ## Persistence And Environment
 
 Recommended production variables:
@@ -92,6 +94,8 @@ Recommended production variables:
 - `APP_ENV=production`: enables secure-cookie behavior outside Vercel.
 
 The app keeps optional Azure OpenAI variables unchanged. Wikipedia retrieval needs no API key.
+
+Production account/chat storage requires both `DATABASE_URL` and `SESSION_SECRET`. If either is absent on Vercel, the public shell still renders, legacy `/api/chat` can still answer stateless requests, and account-backed login/signup/chat-thread APIs report that auth is not configured.
 
 ## Wikipedia Text Retrieval
 
@@ -112,7 +116,8 @@ If Wikipedia lookup fails, times out, or returns no relevant result, the app gra
 2. Import the repo in Vercel.
 3. Keep the framework preset as FastAPI.
 4. Use the default install command from `vercel.json`: `python -m pip install -r requirements.txt`.
-5. Deploy.
+5. Add `DATABASE_URL` and `SESSION_SECRET` in the Vercel project settings for production account-backed chats.
+6. Deploy.
 
 Optional Azure OpenAI environment variables:
 
@@ -153,3 +158,12 @@ python -m uvicorn app:app --reload --port 8000
 ```
 
 Then open `http://127.0.0.1:8000`.
+
+Useful availability checks:
+
+```cmd
+curl http://127.0.0.1:8000/api/health
+curl http://127.0.0.1:8000/api/runtime
+```
+
+`/api/runtime` reports whether auth is configured, whether a database URL is present, and whether the database health check is reachable without exposing secret values.

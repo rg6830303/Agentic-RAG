@@ -5,6 +5,7 @@ import base64
 import hashlib
 import hmac
 import json
+import logging
 import math
 import os
 import platform
@@ -46,6 +47,7 @@ WIKIPEDIA_TIMEOUT_SECONDS = 4
 WIKIPEDIA_CACHE_TTL_SECONDS = 60 * 30
 WIKIPEDIA_CACHE: dict[str, tuple[float, Any]] = {}
 WIKIPEDIA_CACHE_LOCK = RLock()
+LOGGER = logging.getLogger("agentic_rag")
 
 
 @dataclass(slots=True)
@@ -412,6 +414,37 @@ def _auth_secret() -> bytes:
 
 def _secure_auth_cookie() -> bool:
     return bool(os.getenv("VERCEL") or os.getenv("APP_ENV", "").lower() == "production")
+
+
+def _production_runtime() -> bool:
+    return _secure_auth_cookie()
+
+
+def _configured_database_url() -> str | None:
+    database_url = os.getenv("DATABASE_URL")
+    if database_url:
+        return database_url
+    if _production_runtime():
+        return None
+    return f"sqlite:///{APP_DB_PATH}"
+
+
+def _auth_setup_error() -> str:
+    missing: list[str] = []
+    if _production_runtime() and not os.getenv("DATABASE_URL"):
+        missing.append("DATABASE_URL")
+    if _production_runtime() and not (os.getenv("SESSION_SECRET") or os.getenv("AUTH_SECRET")):
+        missing.append("SESSION_SECRET")
+    if not missing:
+        return ""
+    return f"Auth is not configured. Set {', '.join(missing)} for production deployments."
+
+
+def _auth_unavailable_exception(detail: str | None = None) -> HTTPException:
+    return HTTPException(
+        status_code=503,
+        detail=detail or "Auth is not configured. DATABASE_URL and SESSION_SECRET are required in production.",
+    )
 
 
 def _public_user(user: dict[str, Any]) -> AuthUserView:
@@ -1761,7 +1794,83 @@ class AccountStore:
 
 
 chat_history_service = ChatHistoryService(CHAT_HISTORY_DIR)
-account_store = AccountStore()
+account_store: AccountStore | None = None
+ACCOUNT_STORE_ERROR = ""
+ACCOUNT_STORE_LOCK = RLock()
+
+
+def get_account_store(required: bool = True) -> AccountStore | None:
+    """Lazily initialize account/chat persistence without crashing app import."""
+    global account_store, ACCOUNT_STORE_ERROR
+    if account_store is not None:
+        return account_store
+
+    setup_error = _auth_setup_error()
+    if setup_error:
+        ACCOUNT_STORE_ERROR = setup_error
+        if required:
+            raise _auth_unavailable_exception(setup_error)
+        return None
+
+    database_url = _configured_database_url()
+    if not database_url:
+        ACCOUNT_STORE_ERROR = "Auth persistence is not configured."
+        if required:
+            raise _auth_unavailable_exception(ACCOUNT_STORE_ERROR)
+        return None
+
+    with ACCOUNT_STORE_LOCK:
+        if account_store is not None:
+            return account_store
+        try:
+            account_store = AccountStore(database_url)
+            ACCOUNT_STORE_ERROR = ""
+        except Exception as exc:  # pragma: no cover - exercised by production env differences.
+            ACCOUNT_STORE_ERROR = (
+                f"Account persistence is unavailable ({exc.__class__.__name__}). "
+                "Check DATABASE_URL and database connectivity."
+            )
+            LOGGER.warning("Account persistence initialization failed: %s", exc.__class__.__name__)
+            if required:
+                raise _auth_unavailable_exception(ACCOUNT_STORE_ERROR) from exc
+            return None
+    return account_store
+
+
+def _account_store_status(check_reachable: bool = False) -> dict[str, Any]:
+    database_url = _configured_database_url()
+    store = account_store
+    status: dict[str, Any] = {
+        "database": (
+            "postgres"
+            if database_url and database_url.startswith(("postgres://", "postgresql://"))
+            else "sqlite"
+            if database_url
+            else "unconfigured"
+        ),
+        "database_url_configured": bool(os.getenv("DATABASE_URL")),
+        "database_configured": bool(database_url),
+        "production_runtime": _production_runtime(),
+        "available": store is not None,
+        "reachable": None,
+        "error": ACCOUNT_STORE_ERROR or _auth_setup_error(),
+    }
+    if not check_reachable:
+        return status
+    try:
+        store = get_account_store(required=False)
+        status["available"] = store is not None
+        if store is None:
+            status["reachable"] = False
+            status["error"] = status["error"] or ACCOUNT_STORE_ERROR
+            return status
+        store._fetchone("SELECT 1 AS ok")
+        status["reachable"] = True
+        status["error"] = ""
+    except Exception as exc:  # pragma: no cover - depends on external database.
+        status["reachable"] = False
+        status["error"] = f"Database health check failed ({exc.__class__.__name__})."
+    return status
 
 
 def current_user_from_request(request: Request | None) -> dict[str, Any] | None:
@@ -1774,13 +1883,32 @@ def current_user_from_request(request: Request | None) -> dict[str, Any] | None:
     user_id = str(payload.get("user_id") or "")
     if not user_id:
         return None
-    return account_store.get_user_by_id(user_id)
+    store = get_account_store(required=False)
+    if store is None:
+        return None
+    try:
+        return store.get_user_by_id(user_id)
+    except Exception as exc:  # pragma: no cover - defensive for deployed database interruptions.
+        LOGGER.warning("Could not load authenticated user: %s", exc.__class__.__name__)
+        return None
 
 
 def require_current_user(request: Request | None) -> dict[str, Any]:
+    if request is not None:
+        get_account_store(required=True)
     user = current_user_from_request(request)
     if not user:
         raise HTTPException(status_code=401, detail="Please log in to access your chats.")
+    return user
+
+
+def current_user_or_legacy(request: Request | None, unauthorized_detail: str) -> dict[str, Any] | None:
+    if request is None:
+        return None
+    get_account_store(required=True)
+    user = current_user_from_request(request)
+    if not user:
+        raise HTTPException(status_code=401, detail=unauthorized_detail)
     return user
 
 
@@ -4480,7 +4608,7 @@ APP_HTML = """<!doctype html>
     }
 
     function sessionTitleFromPrompt(prompt) {
-      const clean = prompt.replace(/\s+/g, " ").trim().replace(/[.?!]+$/, "");
+      const clean = prompt.replace(/\\s+/g, " ").trim().replace(/[.?!]+$/, "");
       return clean ? clean.slice(0, 72) : "New RAG conversation";
     }
 
@@ -4505,7 +4633,7 @@ APP_HTML = """<!doctype html>
         source_type: chunk.source_type,
         source_url: chunk.source_url,
         page_title: chunk.page_title,
-        snippet: (chunk.text || "").replace(/\s+/g, " ").trim().slice(0, 520)
+        snippet: (chunk.text || "").replace(/\\s+/g, " ").trim().slice(0, 520)
       }));
     }
 
@@ -4565,7 +4693,7 @@ APP_HTML = """<!doctype html>
     }
 
     function compactClientText(text, maxChars = 700) {
-      const clean = String(text || "").replace(/\s+/g, " ").trim();
+      const clean = String(text || "").replace(/\\s+/g, " ").trim();
       return clean.length > maxChars ? `${clean.slice(0, maxChars - 1).trim()}...` : clean;
     }
 
@@ -5718,13 +5846,17 @@ def health_check() -> dict[str, Any]:
     return {
         "status": "ok",
         "service": SERVICE_NAME,
+        "version": SERVICE_VERSION,
         "source_count": corpus["source_count"],
         "chunk_count": corpus["chunk_count"],
+        "auth_configured": not bool(_auth_setup_error()),
+        "database_configured": bool(_configured_database_url()),
     }
 
 
 @app.get("/api/runtime")
 def runtime_info() -> dict[str, Any]:
+    persistence = _account_store_status(check_reachable=True)
     return {
         "service": SERVICE_NAME,
         "version": SERVICE_VERSION,
@@ -5734,11 +5866,10 @@ def runtime_info() -> dict[str, Any]:
         "auth": {
             "cookie_name": AUTH_COOKIE_NAME,
             "session_secret_configured": bool(os.getenv("SESSION_SECRET") or os.getenv("AUTH_SECRET")),
+            "configured": not bool(_auth_setup_error()),
+            "setup_error": _auth_setup_error(),
         },
-        "persistence": {
-            "database": "postgres" if account_store.is_postgres else "sqlite",
-            "database_url_configured": bool(os.getenv("DATABASE_URL")),
-        },
+        "persistence": persistence,
         "azure_openai": _azure_status(),
         "corpus": _corpus_summary(),
         "capabilities": _capabilities(),
@@ -5775,8 +5906,14 @@ def source_view(path: str = Query(..., min_length=1)) -> dict[str, Any]:
 
 @app.post("/api/auth/signup", response_model=AuthResponse)
 def auth_signup(payload: AuthSignupRequest, response: Response) -> AuthResponse:
+    setup_error = _auth_setup_error()
+    if setup_error:
+        raise _auth_unavailable_exception(setup_error)
+    store = get_account_store(required=True)
+    if store is None:
+        raise _auth_unavailable_exception()
     try:
-        user = account_store.create_user(
+        user = store.create_user(
             email=payload.email,
             password=payload.password,
             display_name=payload.display_name,
@@ -5793,7 +5930,13 @@ def auth_signup(payload: AuthSignupRequest, response: Response) -> AuthResponse:
 
 @app.post("/api/auth/login", response_model=AuthResponse)
 def auth_login(payload: AuthLoginRequest, response: Response) -> AuthResponse:
-    user = account_store.verify_user(payload.email, payload.password)
+    setup_error = _auth_setup_error()
+    if setup_error:
+        raise _auth_unavailable_exception(setup_error)
+    store = get_account_store(required=True)
+    if store is None:
+        raise _auth_unavailable_exception()
+    user = store.verify_user(payload.email, payload.password)
     if not user:
         raise HTTPException(status_code=401, detail="Email or password is incorrect.")
     _set_auth_cookie(response, user)
@@ -5812,6 +5955,9 @@ def auth_logout(response: Response) -> AuthResponse:
 
 @app.get("/api/auth/me", response_model=AuthResponse)
 def auth_me(request: Request) -> AuthResponse:
+    setup_error = _auth_setup_error()
+    if setup_error:
+        return AuthResponse(authenticated=False, user=None, message=setup_error)
     user = current_user_from_request(request)
     if not user:
         return AuthResponse(authenticated=False, user=None, message="Signed out.")
@@ -5820,19 +5966,17 @@ def auth_me(request: Request) -> AuthResponse:
 
 @app.get("/api/chat/history", response_model=ChatHistoryList)
 def chat_history(request: Request = None) -> ChatHistoryList:
-    user = current_user_from_request(request)
-    if request is not None and not user:
-        raise HTTPException(status_code=401, detail="Please log in to view saved chats.")
-    sessions = account_store.list_threads(user["id"]) if user else chat_history_service.list_sessions()
+    user = current_user_or_legacy(request, "Please log in to view saved chats.")
+    store = get_account_store(required=True) if user else None
+    sessions = store.list_threads(user["id"]) if user and store else chat_history_service.list_sessions()
     return ChatHistoryList(sessions=[_session_summary(session) for session in sessions])
 
 
 @app.get("/api/chat/history/{session_id}", response_model=ChatSessionView)
 def chat_session(session_id: str, request: Request = None) -> ChatSessionView:
-    user = current_user_from_request(request)
-    if request is not None and not user:
-        raise HTTPException(status_code=401, detail="Please log in to open this chat.")
-    session = account_store.get_thread(user["id"], session_id) if user else chat_history_service.get_session(session_id)
+    user = current_user_or_legacy(request, "Please log in to open this chat.")
+    store = get_account_store(required=True) if user else None
+    session = store.get_thread(user["id"], session_id) if user and store else chat_history_service.get_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Chat session not found.")
     return _session_view(session)
@@ -5840,11 +5984,10 @@ def chat_session(session_id: str, request: Request = None) -> ChatSessionView:
 
 @app.post("/api/chat/history/{session_id}/clone", response_model=ChatSessionView)
 def clone_chat_session(session_id: str, request: Request = None) -> ChatSessionView:
-    user = current_user_from_request(request)
-    if request is not None and not user:
-        raise HTTPException(status_code=401, detail="Please log in to clone chats.")
+    user = current_user_or_legacy(request, "Please log in to clone chats.")
     if user:
-        session = account_store.clone_thread(user["id"], session_id)
+        store = get_account_store(required=True)
+        session = store.clone_thread(user["id"], session_id) if store else None
         saved = bool(session)
     else:
         session, saved = chat_history_service.clone_session(session_id)
@@ -5865,15 +6008,16 @@ def create_chat(
     request: Request = None,
     session_name: str | None = Query(default=None, max_length=120),
 ) -> ChatSessionView:
-    user = current_user_from_request(request)
+    user = current_user_or_legacy(request, "Please log in to create chats.")
     name = (payload.session_name if payload else None) or session_name
-    if request is not None and not user:
-        raise HTTPException(status_code=401, detail="Please log in to create chats.")
     if user:
-        session = account_store.create_thread(user["id"], title=name)
+        store = get_account_store(required=True)
+        session = store.create_thread(user["id"], title=name) if store else None
         saved = True
     else:
         session, saved = chat_history_service.create_session(session_name=name)
+    if not session:
+        raise _auth_unavailable_exception()
     session.setdefault("metadata", {})["created"] = saved
     return _session_view(session)
 
@@ -5889,11 +6033,10 @@ def update_chat(
     payload: ChatSessionUpdate,
     request: Request = None,
 ) -> ChatSessionView:
-    user = current_user_from_request(request)
-    if request is not None and not user:
-        raise HTTPException(status_code=401, detail="Please log in to update chats.")
+    user = current_user_or_legacy(request, "Please log in to update chats.")
     if user:
-        session = account_store.update_thread(user["id"], session_id, session_name=payload.session_name)
+        store = get_account_store(required=True)
+        session = store.update_thread(user["id"], session_id, session_name=payload.session_name) if store else None
     else:
         session, _saved = chat_history_service.update_session(
             session_id,
@@ -5920,11 +6063,10 @@ def edit_chat_message(
     payload: ChatMessageEditRequest,
     request: Request = None,
 ) -> ChatSessionView:
-    user = current_user_from_request(request)
-    if request is not None and not user:
-        raise HTTPException(status_code=401, detail="Please log in to edit chats.")
+    user = current_user_or_legacy(request, "Please log in to edit chats.")
     if user:
-        branch_session, turn_index = account_store.session_before_user_message(user["id"], session_id, message_id)
+        store = get_account_store(required=True)
+        branch_session, turn_index = store.session_before_user_message(user["id"], session_id, message_id) if store else (None, None)
     else:
         branch_session, turn_index = chat_history_service.session_before_user_message(session_id, message_id)
     if not branch_session:
@@ -5940,7 +6082,8 @@ def edit_chat_message(
     )
     response, _projected_agenda, suggestions, metadata = _generate_chat_turn(chat_payload, branch_session)
     if user:
-        session, saved = account_store.replace_turn_branch(
+        store = get_account_store(required=True)
+        session, saved = store.replace_turn_branch(
             user_id=user["id"],
             session_id=session_id,
             turn_index=turn_index,
@@ -5976,18 +6119,17 @@ def regenerate_chat_response(
     payload: ChatRegenerateRequest,
     request: Request = None,
 ) -> ChatSessionView:
-    user = current_user_from_request(request)
-    if request is not None and not user:
-        raise HTTPException(status_code=401, detail="Please log in to regenerate chats.")
+    user = current_user_or_legacy(request, "Please log in to regenerate chats.")
     if user:
-        branch_session, turn_index = account_store.session_before_latest_turn(user["id"], session_id)
+        store = get_account_store(required=True)
+        branch_session, turn_index = store.session_before_latest_turn(user["id"], session_id) if store else (None, None)
     else:
         branch_session, turn_index = chat_history_service.session_before_latest_turn(session_id)
     if not branch_session:
         raise HTTPException(status_code=404, detail="Chat session not found.")
     if turn_index is None:
         raise HTTPException(status_code=400, detail="No assistant response to regenerate.")
-    original_session = account_store.get_thread(user["id"], session_id) if user else chat_history_service.get_session(session_id)
+    original_session = store.get_thread(user["id"], session_id) if user and store else chat_history_service.get_session(session_id)
     if not original_session:
         raise HTTPException(status_code=404, detail="Chat session not found.")
     history = list(original_session.get("history") or [])
@@ -6003,7 +6145,8 @@ def regenerate_chat_response(
     )
     response, _projected_agenda, suggestions, metadata = _generate_chat_turn(chat_payload, branch_session)
     if user:
-        session, saved = account_store.replace_turn_branch(
+        store = get_account_store(required=True)
+        session, saved = store.replace_turn_branch(
             user_id=user["id"],
             session_id=session_id,
             turn_index=turn_index,
@@ -6035,10 +6178,9 @@ def regenerate_chat_response(
 
 @app.delete("/api/chats/{session_id}")
 def delete_chat(session_id: str, request: Request = None) -> dict[str, Any]:
-    user = current_user_from_request(request)
-    if request is not None and not user:
-        raise HTTPException(status_code=401, detail="Please log in to delete chats.")
-    deleted = account_store.delete_thread(user["id"], session_id) if user else chat_history_service.delete_session(session_id)
+    user = current_user_or_legacy(request, "Please log in to delete chats.")
+    store = get_account_store(required=True) if user else None
+    deleted = store.delete_thread(user["id"], session_id) if user and store else chat_history_service.delete_session(session_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Chat session not found.")
     return {"deleted": True, "session_id": session_id}
@@ -6048,13 +6190,14 @@ def delete_chat(session_id: str, request: Request = None) -> dict[str, Any]:
 def chat_completion(payload: ChatRequest, request: Request = None) -> ChatResponse:
     user = current_user_from_request(request)
     active_session = None
+    store = get_account_store(required=False) if user else None
     if user:
-        active_session = account_store.get_thread(user["id"], payload.session_id) if payload.session_id else None
+        active_session = store.get_thread(user["id"], payload.session_id) if store and payload.session_id else None
     elif payload.session_id:
         active_session = chat_history_service.get_session(payload.session_id)
     response, projected_agenda, suggestions, metadata = _generate_chat_turn(payload, active_session)
-    if user:
-        session, saved = account_store.append_turn(
+    if user and store:
+        session, saved = store.append_turn(
             user_id=user["id"],
             session_id=payload.session_id,
             session_name=payload.session_name,

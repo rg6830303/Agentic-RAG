@@ -82,6 +82,33 @@ class VercelApiTests(unittest.TestCase):
         self.assertTrue(runtime["azure_openai"]["chat_configured"])
         self.assertNotIn("super-secret", str(runtime))
 
+    def test_production_missing_auth_config_degrades_gracefully(self) -> None:
+        original_store = app_module.account_store
+        original_error = app_module.ACCOUNT_STORE_ERROR
+        app_module.account_store = None
+        app_module.ACCOUNT_STORE_ERROR = ""
+        try:
+            with patch.dict(os.environ, {"VERCEL": "1"}, clear=True):
+                client = TestClient(root_app)
+                self.assertEqual(client.get("/").status_code, 200)
+                self.assertEqual(client.get("/api/health").status_code, 200)
+
+                runtime = client.get("/api/runtime")
+                self.assertEqual(runtime.status_code, 200)
+                self.assertFalse(runtime.json()["persistence"]["database_configured"])
+
+                me = client.get("/api/auth/me")
+                self.assertEqual(me.status_code, 200)
+                self.assertFalse(me.json()["authenticated"])
+                self.assertIn("Auth is not configured", me.json()["message"])
+
+                protected = client.get("/api/chats")
+                self.assertEqual(protected.status_code, 503)
+                self.assertIn("Auth is not configured", protected.json()["detail"])
+        finally:
+            app_module.account_store = original_store
+            app_module.ACCOUNT_STORE_ERROR = original_error
+
     def test_chat_uses_local_rag_without_azure_environment(self) -> None:
         with patch.dict(os.environ, {}, clear=True):
             response = chat_completion(ChatRequest(message="How is resistance related to length?", use_wikipedia=False))
