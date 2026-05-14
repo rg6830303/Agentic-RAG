@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 import app as app_module
 from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
 from app import app as root_app
 from api.index import (
@@ -48,6 +49,9 @@ class VercelApiTests(unittest.TestCase):
         self.assertIn(b"Save & regenerate", root.body)
         self.assertIn(b"buildThreadMemory", root.body)
         self.assertIn(b"ensureActiveThread", root.body)
+        self.assertIn(b"/api/auth/login", root.body)
+        self.assertIn(b"Response Details", root.body)
+        self.assertIn(b"data-action=\"details\"", root.body)
         self.assertEqual(health_check()["status"], "ok")
 
     def test_corpus_is_available_to_vercel_api(self) -> None:
@@ -210,6 +214,67 @@ class VercelApiTests(unittest.TestCase):
                 self.assertEqual(second.history[1].user_prompt, "Now explain how this applies to my app.")
             finally:
                 app_module.chat_history_service = original_service
+
+    def test_authenticated_chats_are_user_scoped_and_multi_turn(self) -> None:
+        original_store = app_module.account_store
+        with tempfile.TemporaryDirectory() as tmpdir:
+            app_module.account_store = app_module.AccountStore(f"sqlite:///{Path(tmpdir) / 'auth.db'}")
+            try:
+                alice = TestClient(root_app)
+                bob = TestClient(root_app)
+
+                unauthenticated = TestClient(root_app).get("/api/chats")
+                self.assertEqual(unauthenticated.status_code, 401)
+                bad_login = TestClient(root_app).post(
+                    "/api/auth/login",
+                    json={"email": "alice@example.com", "password": "wrong-password"},
+                )
+                self.assertEqual(bad_login.status_code, 401)
+                self.assertIn("incorrect", bad_login.json()["detail"])
+
+                signup = alice.post(
+                    "/api/auth/signup",
+                    json={"email": "alice@example.com", "password": "correct horse battery staple", "display_name": "Alice"},
+                )
+                self.assertEqual(signup.status_code, 200)
+                self.assertTrue(signup.json()["authenticated"])
+                stored_user = app_module.account_store.get_user_by_email("alice@example.com")
+                self.assertIsNotNone(stored_user)
+                self.assertNotIn("correct horse battery staple", str(stored_user))
+
+                created = alice.post("/api/chats", json={"session_name": "Alice thread"})
+                self.assertEqual(created.status_code, 200)
+                thread_id = created.json()["session_id"]
+
+                first = alice.post(
+                    f"/api/chats/{thread_id}/messages",
+                    json={"message": "Explain RAG simply.", "use_wikipedia": False},
+                )
+                self.assertEqual(first.status_code, 200)
+                second = alice.post(
+                    f"/api/chats/{thread_id}/messages",
+                    json={
+                        "message": "Now explain how this applies to my app.",
+                        "memory_context": "User previously asked: Explain RAG simply.",
+                        "use_wikipedia": False,
+                    },
+                )
+                self.assertEqual(second.status_code, 200)
+                self.assertEqual(len(second.json()["history"]), 2)
+
+                bob_signup = bob.post(
+                    "/api/auth/signup",
+                    json={"email": "bob@example.com", "password": "correct horse battery staple"},
+                )
+                self.assertEqual(bob_signup.status_code, 200)
+                self.assertEqual(bob.get("/api/chats").json()["sessions"], [])
+                self.assertEqual(bob.get(f"/api/chats/{thread_id}").status_code, 404)
+
+                alice_threads = alice.get("/api/chats").json()["sessions"]
+                self.assertEqual(len(alice_threads), 1)
+                self.assertEqual(alice.get(f"/api/chats/{thread_id}").json()["exchange_count"], 2)
+            finally:
+                app_module.account_store = original_store
 
     def test_wikipedia_context_returns_url_backed_citations(self) -> None:
         class FakeResponse:

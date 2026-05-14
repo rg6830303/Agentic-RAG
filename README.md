@@ -6,8 +6,10 @@ This repository is a Vercel-native FastAPI application with a built-in dark blue
 
 - Vercel-ready FastAPI app at `app.py`
 - Stitch-inspired production dark blue browser chat UI served from `/`
+- Login/sign up with signed HttpOnly session cookies and password hashing
+- Per-user chat threads stored in the backend, isolated by authenticated account
 - Enter-to-send prompt composer; use Shift+Enter for multiline prompts
-- Multi-turn saved chat threads with new chat, resume, clone, edit prompt, regenerate, agenda, suggestions, and local browser fallback
+- Multi-turn saved chat threads with new chat, resume, clone, edit prompt, regenerate, agenda, and suggestions
 - RAG API at `/api/chat` and `/api/query`
 - Generation graph showing ingestion, chunking, indexing, retrieval, Self-RAG, generation, guardrails, and HITL
 - HITL checkpoint cards for context review and final answer approval
@@ -25,11 +27,24 @@ This repository is a Vercel-native FastAPI application with a built-in dark blue
 - Press `Shift+Enter` to insert a new line.
 - The Send button uses the same submit path as the keyboard shortcut.
 - Duplicate sends are blocked while retrieval/generation is running.
+- While editing a user prompt, `Enter` saves and regenerates, `Shift+Enter` inserts a newline, and `Escape` cancels the edit.
 - Loading feedback shows a retrieval/generation state while the RAG pipeline runs.
 - Empty state prompt chips help start common workflows such as summarizing the corpus, comparing retrieved sources, or asking for Wikipedia-backed context.
 - A single chat thread can contain many user prompts and assistant answers. Sending a follow-up appends to the active thread; it does not require creating a new chat.
 - User prompts have an Edit action. Saving an edit creates a clean branch by removing later turns and regenerating the assistant answer for the edited prompt.
 - The latest assistant answer has a Regenerate action that replaces that answer while preserving the thread structure.
+- Assistant messages keep the main chat clean: citations, source chunks, guardrails, confidence, and pipeline metrics open from the per-message Details/Sources drawer.
+
+## Authentication
+
+The production UI is account-first. Logged-out users see a login/sign-up screen, and logged-in users see only their own chat threads.
+
+- `POST /api/auth/signup` creates an account and sets a signed HttpOnly cookie.
+- `POST /api/auth/login` verifies the password and creates the session.
+- `POST /api/auth/logout` clears the session cookie.
+- `GET /api/auth/me` returns the current authenticated user.
+
+Passwords are hashed with PBKDF2-HMAC-SHA256 and per-user salts. The frontend never receives password hashes or session secrets, and chat-thread endpoints resolve the user from the signed cookie instead of trusting a frontend `user_id`.
 
 ## Mobile UX
 
@@ -53,7 +68,7 @@ Stitch screens used:
 
 ## Saved Chats
 
-Chat sessions are saved automatically after each answer. Each session stores:
+Authenticated chat sessions are saved automatically after each answer. Each session stores:
 
 - `session_id`
 - title/session name
@@ -63,9 +78,20 @@ Chat sessions are saved automatically after each answer. Each session stores:
 - retrieval metadata such as provider, retrieval mode, confidence, and source counts
 - a thread-specific agenda and compact memory summary
 
-The UI loads saved sessions in the left sidebar and can resume or clone an older chat. Opening an old thread restores the full transcript and follow-up prompts append to that same thread. Thread memory is built from the agenda, compact older-summary, and recent turns, and is sent only for that active thread so separate chats do not mix context.
+The UI loads only the signed-in user's sessions in the left sidebar and can resume or clone an older chat. Opening an old thread restores the full transcript and follow-up prompts append to that same thread. Thread memory is built from the agenda, compact older-summary, and recent turns, and is sent only for that active thread so separate chats and separate users do not mix context.
 
-The browser keeps the active thread transcript as the UI source of truth, appends new turns locally, and sends the active `session_id` plus compact thread memory to the backend for each follow-up. The backend stores history under `data/chat_history/` for local runs. On Vercel/serverless deployments, filesystem writes may be ephemeral, so the browser UI also keeps a best-effort `localStorage` cache for that browser. This is not a multi-user durable database.
+For authenticated users, the backend SQL store is the source of truth. If `DATABASE_URL` points to Postgres, the app uses it for accounts, threads, and messages. Without `DATABASE_URL`, local development falls back to SQLite at `data/agentic_rag_app.sqlite3`; that file is useful locally but is not durable on Vercel serverless deployments. Legacy unauthenticated `/api/chat` calls still use the older file-based history under `data/chat_history/` for backwards compatibility.
+
+## Persistence And Environment
+
+Recommended production variables:
+
+- `DATABASE_URL`: Postgres connection string for durable users and chats.
+- `SESSION_SECRET`: long random secret used to sign HttpOnly auth cookies.
+- `AUTH_COOKIE_NAME`: optional cookie name override, defaults to `agentic_rag_session`.
+- `APP_ENV=production`: enables secure-cookie behavior outside Vercel.
+
+The app keeps optional Azure OpenAI variables unchanged. Wikipedia retrieval needs no API key.
 
 ## Wikipedia Text Retrieval
 
@@ -106,16 +132,17 @@ Without those values, the app still answers with local extractive RAG over the d
 - `/api/corpus` lists deployed corpus files and chunk counts.
 - `/api/capabilities` lists supported retrieval, chunking, HITL, and evaluation features.
 - `/api/source?path=...` returns full source content and chunks.
+- `/api/auth/signup`, `/api/auth/login`, `/api/auth/logout`, and `/api/auth/me` manage accounts and sessions.
 - `/api/chat` answers questions with finalized answer, citations, retrieved chunks, guardrails, checkpoints, and pipeline graph data.
 - `/api/query` is an alias for `/api/chat`.
-- `/api/chat/history` lists saved chat sessions.
-- `/api/chat/history/{session_id}` returns a saved chat transcript.
-- `/api/chat/history/{session_id}/clone` clones an existing saved chat.
-- `/api/chats` provides compatibility aliases for listing and creating sessions.
-- `/api/chats/{session_id}` provides compatibility aliases for retrieving, updating, or deleting sessions.
-- `/api/chats/{session_id}/messages` appends a prompt to an existing thread and returns the generated answer.
+- `/api/chat/history` lists the authenticated user's saved chat sessions.
+- `/api/chat/history/{session_id}` returns one authenticated user chat transcript.
+- `/api/chat/history/{session_id}/clone` clones an authenticated user chat.
+- `/api/chats` lists and creates authenticated user chat threads.
+- `/api/chats/{session_id}` retrieves, updates, or deletes one authenticated user thread.
+- `/api/chats/{session_id}/messages` appends a prompt to an existing user thread and returns the generated answer.
 - `/api/chats/{session_id}/messages/{message_id}` edits a user prompt, branches from that turn, and regenerates the answer.
-- `/api/chats/{session_id}/regenerate` regenerates the latest assistant response in a thread.
+- `/api/chats/{session_id}/regenerate` regenerates the latest assistant response in a user thread.
 - `/api/evaluate` runs the bundled golden-set evaluation.
 
 ## Local Smoke Run

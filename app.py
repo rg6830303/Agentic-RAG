@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 import html
+import base64
+import hashlib
+import hmac
 import json
 import math
 import os
 import platform
 import re
+import secrets
+import sqlite3
 import time
 from collections import Counter, defaultdict
 from dataclasses import dataclass
@@ -17,7 +22,7 @@ from typing import Any, Literal
 from uuid import uuid4
 
 import requests
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
@@ -28,8 +33,13 @@ ROOT_DIR = Path(__file__).resolve().parent
 CORPUS_DIR = ROOT_DIR / "data" / "sample_corpus"
 GOLDEN_EVAL_PATH = ROOT_DIR / "data" / "golden_eval" / "ncert_physics_golden.json"
 CHAT_HISTORY_DIR = ROOT_DIR / "data" / "chat_history"
+APP_DB_PATH = ROOT_DIR / "data" / "agentic_rag_app.sqlite3"
 SUPPORTED_CORPUS_EXTENSIONS = {".csv", ".json", ".md", ".sql", ".txt"}
 SESSION_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_-]{8,80}$")
+AUTH_COOKIE_NAME = os.getenv("AUTH_COOKIE_NAME", "agentic_rag_session")
+AUTH_SESSION_SECONDS = 60 * 60 * 24 * 7
+PASSWORD_HASH_ITERATIONS = 260_000
+DEV_AUTH_SECRET = secrets.token_urlsafe(48)
 WIKIPEDIA_API_URL = "https://en.wikipedia.org/w/api.php"
 WIKIPEDIA_USER_AGENT = "Agentic-RAG/0.3 (https://github.com/rg6830303/Agentic-RAG)"
 WIKIPEDIA_TIMEOUT_SECONDS = 4
@@ -208,6 +218,10 @@ class ChatSessionUpdate(BaseModel):
     session_name: str | None = Field(default=None, max_length=120)
 
 
+class ChatSessionCreate(BaseModel):
+    session_name: str | None = Field(default=None, max_length=120)
+
+
 class ChatMessageEditRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=12_000)
     session_name: str | None = Field(default=None, max_length=120)
@@ -284,6 +298,30 @@ class EvaluationResponse(BaseModel):
     rows: list[dict[str, Any]]
 
 
+class AuthSignupRequest(BaseModel):
+    email: str = Field(..., min_length=3, max_length=254)
+    password: str = Field(..., min_length=8, max_length=256)
+    display_name: str | None = Field(default=None, max_length=120)
+
+
+class AuthLoginRequest(BaseModel):
+    email: str = Field(..., min_length=3, max_length=254)
+    password: str = Field(..., min_length=1, max_length=256)
+
+
+class AuthUserView(BaseModel):
+    id: str
+    email: str
+    display_name: str
+    created_at: str
+
+
+class AuthResponse(BaseModel):
+    authenticated: bool
+    user: AuthUserView | None = None
+    message: str = ""
+
+
 app = FastAPI(
     title=SERVICE_NAME,
     version=SERVICE_VERSION,
@@ -319,6 +357,119 @@ def _compact_text(text: str, max_chars: int = 180) -> str:
 def _session_name_from_prompt(prompt: str) -> str:
     clean = _compact_text(prompt, 72).strip(" .?!")
     return clean or "New RAG conversation"
+
+
+def _normalize_email(email: str) -> str:
+    return email.strip().lower()
+
+
+def _b64_urlsafe(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).decode("ascii").rstrip("=")
+
+
+def _b64_urlsafe_decode(data: str) -> bytes:
+    padding = "=" * (-len(data) % 4)
+    return base64.urlsafe_b64decode((data + padding).encode("ascii"))
+
+
+def _hash_password(password: str) -> str:
+    salt = secrets.token_bytes(16)
+    digest = hashlib.pbkdf2_hmac(
+        "sha256",
+        password.encode("utf-8"),
+        salt,
+        PASSWORD_HASH_ITERATIONS,
+    )
+    return f"pbkdf2_sha256${PASSWORD_HASH_ITERATIONS}${_b64_urlsafe(salt)}${_b64_urlsafe(digest)}"
+
+
+def _verify_password(password: str, password_hash: str) -> bool:
+    try:
+        algorithm, iterations_text, salt_text, digest_text = password_hash.split("$", 3)
+        if algorithm != "pbkdf2_sha256":
+            return False
+        iterations = int(iterations_text)
+        salt = _b64_urlsafe_decode(salt_text)
+        expected = _b64_urlsafe_decode(digest_text)
+        actual = hashlib.pbkdf2_hmac(
+            "sha256",
+            password.encode("utf-8"),
+            salt,
+            iterations,
+        )
+    except (ValueError, TypeError):
+        return False
+    return hmac.compare_digest(actual, expected)
+
+
+def _auth_secret() -> bytes:
+    secret = os.getenv("SESSION_SECRET") or os.getenv("AUTH_SECRET")
+    if secret:
+        return secret.encode("utf-8")
+    # Local development fallback only. Production deployments should set SESSION_SECRET.
+    return DEV_AUTH_SECRET.encode("utf-8")
+
+
+def _secure_auth_cookie() -> bool:
+    return bool(os.getenv("VERCEL") or os.getenv("APP_ENV", "").lower() == "production")
+
+
+def _public_user(user: dict[str, Any]) -> AuthUserView:
+    return AuthUserView(
+        id=str(user["id"]),
+        email=str(user["email"]),
+        display_name=str(user.get("display_name") or user["email"]),
+        created_at=str(user.get("created_at") or ""),
+    )
+
+
+def _session_token_for_user(user: dict[str, Any]) -> str:
+    payload = {
+        "user_id": user["id"],
+        "email": user["email"],
+        "exp": int(time.time()) + AUTH_SESSION_SECONDS,
+    }
+    encoded = _b64_urlsafe(json.dumps(payload, separators=(",", ":")).encode("utf-8"))
+    signature = _b64_urlsafe(hmac.new(_auth_secret(), encoded.encode("ascii"), hashlib.sha256).digest())
+    return f"{encoded}.{signature}"
+
+
+def _decode_session_token(token: str) -> dict[str, Any] | None:
+    if not token or "." not in token:
+        return None
+    encoded, signature = token.split(".", 1)
+    expected = _b64_urlsafe(hmac.new(_auth_secret(), encoded.encode("ascii"), hashlib.sha256).digest())
+    if not hmac.compare_digest(signature, expected):
+        return None
+    try:
+        payload = json.loads(_b64_urlsafe_decode(encoded).decode("utf-8"))
+    except (ValueError, json.JSONDecodeError):
+        return None
+    if int(payload.get("exp") or 0) < int(time.time()):
+        return None
+    return payload
+
+
+def _set_auth_cookie(response: Response, user: dict[str, Any]) -> None:
+    response.set_cookie(
+        AUTH_COOKIE_NAME,
+        _session_token_for_user(user),
+        max_age=AUTH_SESSION_SECONDS,
+        httponly=True,
+        secure=_secure_auth_cookie(),
+        samesite="lax",
+        path="/",
+    )
+
+
+def _clear_auth_cookie(response: Response) -> None:
+    response.delete_cookie(
+        AUTH_COOKIE_NAME,
+        httponly=True,
+        secure=_secure_auth_cookie(),
+        samesite="lax",
+        path="/",
+    )
 
 
 AGENDA_MARKERS = (
@@ -941,7 +1092,696 @@ class ChatHistoryService:
             return self._normalize_session(session), saved
 
 
+def _json_text(value: Any) -> str:
+    return json.dumps(value or {}, ensure_ascii=True, separators=(",", ":"))
+
+
+def _json_list_text(value: Any) -> str:
+    return json.dumps(value or [], ensure_ascii=True, separators=(",", ":"))
+
+
+def _json_loaded(value: Any, fallback: Any) -> Any:
+    if value is None:
+        return fallback
+    if isinstance(value, (dict, list)):
+        return value
+    try:
+        return json.loads(str(value))
+    except (TypeError, json.JSONDecodeError):
+        return fallback
+
+
+class AccountStore:
+    def __init__(self, database_url: str | None = None) -> None:
+        self.database_url = database_url or os.getenv("DATABASE_URL") or f"sqlite:///{APP_DB_PATH}"
+        self.is_postgres = self.database_url.startswith(("postgres://", "postgresql://"))
+        self._lock = RLock()
+        self._psycopg: Any = None
+        self._dict_row: Any = None
+        if self.is_postgres:
+            try:
+                import psycopg  # type: ignore
+                from psycopg.rows import dict_row  # type: ignore
+            except ImportError as exc:
+                raise RuntimeError("DATABASE_URL points to Postgres, but psycopg is not installed.") from exc
+            self._psycopg = psycopg
+            self._dict_row = dict_row
+        else:
+            self.sqlite_path = self._sqlite_path(self.database_url)
+            if self.sqlite_path != ":memory:":
+                Path(self.sqlite_path).parent.mkdir(parents=True, exist_ok=True)
+        self._init_schema()
+
+    @staticmethod
+    def _sqlite_path(database_url: str) -> str:
+        if database_url == "sqlite:///:memory:":
+            return ":memory:"
+        if database_url.startswith("sqlite:///"):
+            return database_url[len("sqlite:///") :]
+        return database_url
+
+    def _connect(self) -> Any:
+        if self.is_postgres:
+            return self._psycopg.connect(
+                self.database_url,
+                autocommit=True,
+                row_factory=self._dict_row,
+            )
+        conn = sqlite3.connect(self.sqlite_path)
+        conn.row_factory = sqlite3.Row
+        return conn
+
+    def _sql(self, sql: str) -> str:
+        return sql.replace("?", "%s") if self.is_postgres else sql
+
+    @staticmethod
+    def _row(row: Any) -> dict[str, Any] | None:
+        if row is None:
+            return None
+        return dict(row)
+
+    def _execute(self, sql: str, params: tuple[Any, ...] = ()) -> None:
+        with self._lock:
+            conn = self._connect()
+            cursor = None
+            try:
+                cursor = conn.execute(self._sql(sql), params)
+                if not self.is_postgres:
+                    conn.commit()
+            finally:
+                if cursor is not None:
+                    cursor.close()
+                conn.close()
+
+    def _executemany(self, sql: str, rows: list[tuple[Any, ...]]) -> None:
+        if not rows:
+            return
+        with self._lock:
+            conn = self._connect()
+            cursor = None
+            try:
+                cursor = conn.cursor()
+                cursor.executemany(self._sql(sql), rows)
+                if not self.is_postgres:
+                    conn.commit()
+            finally:
+                if cursor is not None:
+                    cursor.close()
+                conn.close()
+
+    def _fetchone(self, sql: str, params: tuple[Any, ...] = ()) -> dict[str, Any] | None:
+        with self._lock:
+            conn = self._connect()
+            cursor = None
+            try:
+                cursor = conn.execute(self._sql(sql), params)
+                row = cursor.fetchone()
+            finally:
+                if cursor is not None:
+                    cursor.close()
+                conn.close()
+        return self._row(row)
+
+    def _fetchall(self, sql: str, params: tuple[Any, ...] = ()) -> list[dict[str, Any]]:
+        with self._lock:
+            conn = self._connect()
+            cursor = None
+            try:
+                cursor = conn.execute(self._sql(sql), params)
+                rows = cursor.fetchall()
+            finally:
+                if cursor is not None:
+                    cursor.close()
+                conn.close()
+        return [dict(row) for row in rows]
+
+    def _init_schema(self) -> None:
+        statements = [
+            """
+            CREATE TABLE IF NOT EXISTS users (
+                id TEXT PRIMARY KEY,
+                email TEXT NOT NULL UNIQUE,
+                display_name TEXT NOT NULL,
+                password_hash TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS chat_threads (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                memory_summary TEXT NOT NULL DEFAULT '',
+                user_agenda TEXT NOT NULL DEFAULT '',
+                last_preview TEXT NOT NULL DEFAULT '',
+                metadata_json TEXT NOT NULL DEFAULT '{}'
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS chat_messages (
+                id TEXT PRIMARY KEY,
+                thread_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                content TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT,
+                edited INTEGER NOT NULL DEFAULT 0,
+                parent_message_id TEXT,
+                turn_id TEXT,
+                citations_json TEXT NOT NULL DEFAULT '[]',
+                source_snippets_json TEXT NOT NULL DEFAULT '[]',
+                metadata_json TEXT NOT NULL DEFAULT '{}',
+                suggestions_json TEXT NOT NULL DEFAULT '[]'
+            )
+            """,
+            "CREATE INDEX IF NOT EXISTS idx_chat_threads_user_updated ON chat_threads(user_id, updated_at)",
+            "CREATE INDEX IF NOT EXISTS idx_chat_messages_thread_created ON chat_messages(thread_id, created_at)",
+        ]
+        for statement in statements:
+            self._execute(statement)
+
+    def create_user(self, email: str, password: str, display_name: str | None = None) -> dict[str, Any]:
+        normalized_email = _normalize_email(email)
+        if not normalized_email or "@" not in normalized_email:
+            raise ValueError("Enter a valid email address.")
+        if self.get_user_by_email(normalized_email):
+            raise ValueError("An account already exists for this email.")
+        now = _utc_now_iso()
+        user = {
+            "id": f"user_{uuid4().hex[:18]}",
+            "email": normalized_email,
+            "display_name": _compact_text(display_name or normalized_email.split("@")[0] or normalized_email, 120),
+            "password_hash": _hash_password(password),
+            "created_at": now,
+            "updated_at": now,
+        }
+        self._execute(
+            """
+            INSERT INTO users (id, email, display_name, password_hash, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                user["id"],
+                user["email"],
+                user["display_name"],
+                user["password_hash"],
+                user["created_at"],
+                user["updated_at"],
+            ),
+        )
+        return user
+
+    def get_user_by_email(self, email: str) -> dict[str, Any] | None:
+        return self._fetchone("SELECT * FROM users WHERE email = ?", (_normalize_email(email),))
+
+    def get_user_by_id(self, user_id: str) -> dict[str, Any] | None:
+        return self._fetchone("SELECT * FROM users WHERE id = ?", (user_id,))
+
+    def verify_user(self, email: str, password: str) -> dict[str, Any] | None:
+        user = self.get_user_by_email(email)
+        if not user or not _verify_password(password, str(user.get("password_hash") or "")):
+            return None
+        return user
+
+    def create_thread(
+        self,
+        user_id: str,
+        title: str | None = None,
+        thread_id: str | None = None,
+        seed: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        now = _utc_now_iso()
+        requested_id = thread_id if thread_id and SESSION_ID_PATTERN.match(thread_id) else ""
+        session_id = requested_id or f"chat_{uuid4().hex[:14]}"
+        history = _normalize_history(list((seed or {}).get("history") or []))
+        if seed and history:
+            history = [
+                {
+                    **turn,
+                    "turn_id": f"turn_{uuid4().hex[:12]}",
+                    "user_message_id": _message_id("msg_user"),
+                    "assistant_message_id": _message_id("msg_assistant"),
+                }
+                for turn in history
+            ]
+        display_title = _compact_text(
+            title
+            or (f"Copy of {(seed or {}).get('session_name', 'conversation')}" if seed else "New RAG conversation"),
+            120,
+        )
+        self._execute(
+            """
+            INSERT INTO chat_threads
+                (id, user_id, title, created_at, updated_at, memory_summary, user_agenda, last_preview, metadata_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                session_id,
+                user_id,
+                display_title,
+                now,
+                now,
+                str((seed or {}).get("memory_summary") or ""),
+                str((seed or {}).get("user_agenda") or ""),
+                str(history[-1].get("user_prompt", "")) if history else "",
+                _json_text((seed or {}).get("metadata") or {"created": True}),
+            ),
+        )
+        if history:
+            self._insert_history(user_id, session_id, history)
+            self._update_thread_rollup(user_id, session_id, history)
+        thread = self.get_thread(user_id, session_id)
+        if not thread:
+            raise RuntimeError("Could not create chat thread.")
+        return thread
+
+    def list_threads(self, user_id: str) -> list[dict[str, Any]]:
+        rows = self._fetchall(
+            """
+            SELECT t.*,
+                   (SELECT COUNT(*) FROM chat_messages m WHERE m.thread_id = t.id AND m.user_id = t.user_id AND m.role = 'user') AS exchange_count
+            FROM chat_threads t
+            WHERE t.user_id = ?
+            ORDER BY t.updated_at DESC
+            """,
+            (user_id,),
+        )
+        return [self._session_from_thread_row(row, []) for row in rows]
+
+    def get_thread(self, user_id: str, thread_id: str) -> dict[str, Any] | None:
+        row = self._fetchone(
+            "SELECT * FROM chat_threads WHERE id = ? AND user_id = ?",
+            (thread_id, user_id),
+        )
+        if not row:
+            return None
+        messages = self._fetchall(
+            """
+            SELECT * FROM chat_messages
+            WHERE thread_id = ? AND user_id = ?
+            ORDER BY created_at, id
+            """,
+            (thread_id, user_id),
+        )
+        return self._session_from_thread_row(row, messages)
+
+    def update_thread(self, user_id: str, thread_id: str, session_name: str | None = None) -> dict[str, Any] | None:
+        if session_name:
+            self._execute(
+                "UPDATE chat_threads SET title = ?, updated_at = ? WHERE id = ? AND user_id = ?",
+                (_compact_text(session_name, 120), _utc_now_iso(), thread_id, user_id),
+            )
+        return self.get_thread(user_id, thread_id)
+
+    def delete_thread(self, user_id: str, thread_id: str) -> bool:
+        if not self.get_thread(user_id, thread_id):
+            return False
+        self._execute("DELETE FROM chat_messages WHERE thread_id = ? AND user_id = ?", (thread_id, user_id))
+        self._execute("DELETE FROM chat_threads WHERE id = ? AND user_id = ?", (thread_id, user_id))
+        return True
+
+    def clone_thread(self, user_id: str, thread_id: str) -> dict[str, Any] | None:
+        session = self.get_thread(user_id, thread_id)
+        if not session:
+            return None
+        return self.create_thread(
+            user_id,
+            title=f"Copy of {session.get('session_name', 'conversation')}",
+            seed=session,
+        )
+
+    def append_turn(
+        self,
+        user_id: str,
+        session_id: str | None,
+        session_name: str | None,
+        user_prompt: str,
+        ai_response: str,
+        metadata: dict[str, Any],
+        citations: list[Citation],
+        retrieved_chunks: list[RetrievedChunk],
+        suggestions: list[str],
+    ) -> tuple[dict[str, Any], bool]:
+        session = self.get_thread(user_id, session_id) if session_id else None
+        if not session:
+            session = self.create_thread(
+                user_id,
+                title=session_name or _session_name_from_prompt(user_prompt),
+                thread_id=session_id,
+            )
+        elif session_name:
+            session = self.update_thread(user_id, session["session_id"], session_name=session_name) or session
+        now = _utc_now_iso()
+        history = list(session.get("history") or [])
+        turn = self._turn_dict(
+            user_prompt=user_prompt,
+            ai_response=ai_response,
+            metadata=metadata,
+            citations=citations,
+            retrieved_chunks=retrieved_chunks,
+            suggestions=suggestions,
+            timestamp=now,
+        )
+        self._insert_history(user_id, session["session_id"], [turn])
+        new_history = _normalize_history(history + [turn])
+        self._update_thread_rollup(user_id, session["session_id"], new_history)
+        return self.get_thread(user_id, session["session_id"]) or session, True
+
+    def session_before_user_message(
+        self,
+        user_id: str,
+        session_id: str,
+        message_id: str,
+    ) -> tuple[dict[str, Any] | None, int | None]:
+        session = self.get_thread(user_id, session_id)
+        if not session:
+            return None, None
+        history = list(session.get("history") or [])
+        for index, turn in enumerate(history):
+            identifiers = {
+                str(turn.get("turn_id") or ""),
+                str(turn.get("user_message_id") or ""),
+                f"msg_user_{turn.get('turn_id', '')}",
+            }
+            if message_id in identifiers:
+                branch = dict(session)
+                branch["history"] = history[:index]
+                branch["messages"] = _messages_from_history(branch["history"])
+                branch["memory_summary"] = _thread_memory_summary(branch["history"], str(session.get("memory_summary") or ""))
+                return branch, index
+        return session, None
+
+    def session_before_latest_turn(self, user_id: str, session_id: str) -> tuple[dict[str, Any] | None, int | None]:
+        session = self.get_thread(user_id, session_id)
+        if not session:
+            return None, None
+        history = list(session.get("history") or [])
+        if not history:
+            return session, None
+        index = len(history) - 1
+        branch = dict(session)
+        branch["history"] = history[:index]
+        branch["messages"] = _messages_from_history(branch["history"])
+        branch["memory_summary"] = _thread_memory_summary(branch["history"], str(session.get("memory_summary") or ""))
+        return branch, index
+
+    def replace_turn_branch(
+        self,
+        user_id: str,
+        session_id: str,
+        turn_index: int,
+        user_prompt: str,
+        ai_response: str,
+        metadata: dict[str, Any],
+        citations: list[Citation],
+        retrieved_chunks: list[RetrievedChunk],
+        suggestions: list[str],
+        edited: bool,
+    ) -> tuple[dict[str, Any] | None, bool]:
+        session = self.get_thread(user_id, session_id)
+        if not session:
+            return None, False
+        history = list(session.get("history") or [])
+        if turn_index < 0 or turn_index >= len(history):
+            return None, False
+        original = _normalize_turn(history[turn_index])
+        now = _utc_now_iso()
+        replacement = self._turn_dict(
+            user_prompt=user_prompt,
+            ai_response=ai_response,
+            metadata=metadata,
+            citations=citations,
+            retrieved_chunks=retrieved_chunks,
+            suggestions=suggestions,
+            turn_id=original["turn_id"],
+            timestamp=original["timestamp"],
+            user_message_id=original["user_message_id"],
+            assistant_message_id=_message_id("msg_assistant"),
+            updated_at=now,
+            edited=bool(edited or original.get("edited")),
+        )
+        new_history = _normalize_history(history[:turn_index] + [replacement])
+        self._execute("DELETE FROM chat_messages WHERE thread_id = ? AND user_id = ?", (session_id, user_id))
+        self._insert_history(user_id, session_id, new_history)
+        self._update_thread_rollup(
+            user_id,
+            session_id,
+            new_history,
+            metadata_extra={"branched_from_turn": original["turn_id"] if edited else ""},
+        )
+        return self.get_thread(user_id, session_id), True
+
+    def _turn_dict(
+        self,
+        user_prompt: str,
+        ai_response: str,
+        metadata: dict[str, Any],
+        citations: list[Citation] | list[dict[str, Any]],
+        retrieved_chunks: list[RetrievedChunk] | list[dict[str, Any]],
+        suggestions: list[str],
+        turn_id: str | None = None,
+        timestamp: str | None = None,
+        user_message_id: str | None = None,
+        assistant_message_id: str | None = None,
+        updated_at: str | None = None,
+        edited: bool = False,
+    ) -> dict[str, Any]:
+        return {
+            "turn_id": turn_id or f"turn_{uuid4().hex[:12]}",
+            "timestamp": timestamp or _utc_now_iso(),
+            "updated_at": updated_at or _utc_now_iso(),
+            "user_message_id": user_message_id or _message_id("msg_user"),
+            "assistant_message_id": assistant_message_id or _message_id("msg_assistant"),
+            "user_prompt": user_prompt,
+            "ai_response": ai_response,
+            "edited": bool(edited),
+            "metadata": metadata,
+            "citations": [
+                citation if isinstance(citation, dict) else _model_dump(citation)
+                for citation in list(citations or [])[:5]
+            ],
+            "source_snippets": [
+                self._chunk_snippet(chunk)
+                for chunk in list(retrieved_chunks or [])[:5]
+            ],
+            "suggestions": list(suggestions or []),
+        }
+
+    @staticmethod
+    def _chunk_snippet(chunk: RetrievedChunk | dict[str, Any]) -> dict[str, Any]:
+        if isinstance(chunk, dict):
+            text = str(chunk.get("snippet") or chunk.get("text") or "")
+            return {
+                **chunk,
+                "snippet": _compact_text(text, 520),
+            }
+        return {
+            "rank": chunk.rank,
+            "file_name": chunk.file_name,
+            "path": chunk.path,
+            "score": chunk.score,
+            "source": chunk.source,
+            "source_type": chunk.source_type,
+            "source_url": chunk.source_url,
+            "page_title": chunk.page_title,
+            "snippet": _compact_text(chunk.text, 520),
+        }
+
+    def _insert_history(self, user_id: str, thread_id: str, history: list[dict[str, Any]]) -> None:
+        rows: list[tuple[Any, ...]] = []
+        for raw_turn in history:
+            turn = _normalize_turn(raw_turn)
+            metadata = dict(turn.get("metadata") or {})
+            citations = list(turn.get("citations") or [])
+            source_snippets = list(turn.get("source_snippets") or [])
+            suggestions = list(turn.get("suggestions") or [])
+            rows.append(
+                (
+                    turn["user_message_id"],
+                    thread_id,
+                    user_id,
+                    "user",
+                    turn["user_prompt"],
+                    turn["timestamp"],
+                    turn.get("updated_at"),
+                    1 if turn.get("edited") else 0,
+                    None,
+                    turn["turn_id"],
+                    "[]",
+                    "[]",
+                    "{}",
+                    "[]",
+                )
+            )
+            rows.append(
+                (
+                    turn["assistant_message_id"],
+                    thread_id,
+                    user_id,
+                    "assistant",
+                    turn["ai_response"],
+                    turn.get("updated_at") or turn["timestamp"],
+                    turn.get("updated_at"),
+                    0,
+                    turn["user_message_id"],
+                    turn["turn_id"],
+                    _json_list_text(citations),
+                    _json_list_text(source_snippets),
+                    _json_text(metadata),
+                    _json_list_text(suggestions),
+                )
+            )
+        self._executemany(
+            """
+            INSERT INTO chat_messages
+                (id, thread_id, user_id, role, content, created_at, updated_at, edited,
+                 parent_message_id, turn_id, citations_json, source_snippets_json, metadata_json, suggestions_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            rows,
+        )
+
+    def _update_thread_rollup(
+        self,
+        user_id: str,
+        thread_id: str,
+        history: list[dict[str, Any]],
+        metadata_extra: dict[str, Any] | None = None,
+    ) -> None:
+        normalized = _normalize_history(history)
+        last_turn = normalized[-1] if normalized else {}
+        existing = self.get_thread(user_id, thread_id)
+        existing_title = str((existing or {}).get("session_name") or "New RAG conversation")
+        title = existing_title
+        if existing_title == "New RAG conversation" and last_turn:
+            title = _session_name_from_prompt(str(last_turn.get("user_prompt") or ""))
+        agenda = _summarize_agenda(
+            str((existing or {}).get("user_agenda") or ""),
+            normalized[:-1],
+            str(last_turn.get("user_prompt") or ""),
+            [],
+        ) if last_turn else str((existing or {}).get("user_agenda") or "")
+        metadata = {
+            "last_provider": (last_turn.get("metadata") or {}).get("provider") if last_turn else "",
+            "last_retrieval_mode": (last_turn.get("metadata") or {}).get("retrieval_mode") if last_turn else "",
+            "last_confidence": (last_turn.get("metadata") or {}).get("confidence") if last_turn else "",
+        }
+        metadata.update(metadata_extra or {})
+        self._execute(
+            """
+            UPDATE chat_threads
+            SET title = ?, updated_at = ?, memory_summary = ?, user_agenda = ?, last_preview = ?, metadata_json = ?
+            WHERE id = ? AND user_id = ?
+            """,
+            (
+                title,
+                _utc_now_iso(),
+                _thread_memory_summary(normalized, str((existing or {}).get("memory_summary") or "")),
+                agenda,
+                str(last_turn.get("user_prompt") or last_turn.get("ai_response") or "") if last_turn else "",
+                _json_text(metadata),
+                thread_id,
+                user_id,
+            ),
+        )
+
+    def _session_from_thread_row(self, row: dict[str, Any], messages: list[dict[str, Any]]) -> dict[str, Any]:
+        history = self._history_from_rows(messages)
+        last_turn = history[-1] if history else {}
+        exchange_count = int(row.get("exchange_count") or len(history))
+        return {
+            "version": 3,
+            "session_id": row["id"],
+            "session_name": _compact_text(str(row.get("title") or "New RAG conversation"), 120),
+            "user_agenda": str(row.get("user_agenda") or ""),
+            "memory_summary": str(row.get("memory_summary") or ""),
+            "created_at": str(row.get("created_at") or _utc_now_iso()),
+            "updated_at": str(row.get("updated_at") or _utc_now_iso()),
+            "exchange_count": exchange_count,
+            "last_prompt": str(row.get("last_preview") or last_turn.get("user_prompt", "")),
+            "last_response": str(last_turn.get("ai_response", "")),
+            "metadata": _json_loaded(row.get("metadata_json"), {}),
+            "history": history,
+            "messages": [self._message_view(message) for message in messages],
+        }
+
+    def _history_from_rows(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        assistant_by_parent = {
+            str(row.get("parent_message_id") or ""): row
+            for row in rows
+            if row.get("role") == "assistant"
+        }
+        history: list[dict[str, Any]] = []
+        for row in rows:
+            if row.get("role") != "user":
+                continue
+            assistant = assistant_by_parent.get(str(row["id"]))
+            if not assistant:
+                continue
+            history.append(
+                _normalize_turn(
+                    {
+                        "turn_id": row.get("turn_id") or assistant.get("turn_id"),
+                        "timestamp": row.get("created_at"),
+                        "updated_at": assistant.get("updated_at") or assistant.get("created_at"),
+                        "user_message_id": row["id"],
+                        "assistant_message_id": assistant["id"],
+                        "user_prompt": row.get("content") or "",
+                        "ai_response": assistant.get("content") or "",
+                        "edited": bool(row.get("edited")),
+                        "metadata": _json_loaded(assistant.get("metadata_json"), {}),
+                        "citations": _json_loaded(assistant.get("citations_json"), []),
+                        "source_snippets": _json_loaded(assistant.get("source_snippets_json"), []),
+                        "suggestions": _json_loaded(assistant.get("suggestions_json"), []),
+                    }
+                )
+            )
+        return history
+
+    @staticmethod
+    def _message_view(row: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "message_id": row["id"],
+            "role": row["role"],
+            "content": row.get("content") or "",
+            "created_at": str(row.get("created_at") or _utc_now_iso()),
+            "updated_at": row.get("updated_at"),
+            "turn_id": row.get("turn_id"),
+            "parent_message_id": row.get("parent_message_id"),
+            "edited": bool(row.get("edited")),
+            "metadata": _json_loaded(row.get("metadata_json"), {}),
+            "citations": _json_loaded(row.get("citations_json"), []),
+            "source_snippets": _json_loaded(row.get("source_snippets_json"), []),
+            "suggestions": _json_loaded(row.get("suggestions_json"), []),
+        }
+
+
 chat_history_service = ChatHistoryService(CHAT_HISTORY_DIR)
+account_store = AccountStore()
+
+
+def current_user_from_request(request: Request | None) -> dict[str, Any] | None:
+    if request is None:
+        return None
+    token = request.cookies.get(AUTH_COOKIE_NAME)
+    payload = _decode_session_token(token or "")
+    if not payload:
+        return None
+    user_id = str(payload.get("user_id") or "")
+    if not user_id:
+        return None
+    return account_store.get_user_by_id(user_id)
+
+
+def require_current_user(request: Request | None) -> dict[str, Any]:
+    user = current_user_from_request(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Please log in to access your chats.")
+    return user
 
 
 def _session_summary(session: dict[str, Any]) -> ChatSessionSummary:
@@ -1991,6 +2831,136 @@ APP_HTML = """<!doctype html>
       text-overflow: ellipsis;
       white-space: nowrap;
     }
+    body.auth-required .mobile-topbar,
+    body.auth-required .drawer-overlay,
+    body.auth-required .shell,
+    body.auth-required .response-details-backdrop,
+    body.auth-required .response-details {
+      display: none !important;
+    }
+    .auth-shell {
+      min-height: 100dvh;
+      display: none;
+      place-items: center;
+      padding: 24px;
+    }
+    body.auth-required .auth-shell { display: grid; }
+    .auth-card {
+      width: min(100%, 440px);
+      border: 1px solid var(--line-soft);
+      border-radius: 14px;
+      background: linear-gradient(180deg, rgba(16, 36, 63, 0.94), rgba(9, 26, 49, 0.9));
+      box-shadow: var(--shadow);
+      padding: 24px;
+      display: grid;
+      gap: 18px;
+    }
+    .auth-card h1 { font-size: 28px; line-height: 1.1; }
+    .auth-card p { color: var(--muted); line-height: 1.5; }
+    .auth-tabs {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      padding: 4px;
+      border: 1px solid var(--line-soft);
+      border-radius: 10px;
+      background: rgba(3, 18, 34, 0.5);
+    }
+    .auth-tab {
+      min-height: 42px;
+      border: 0;
+      border-radius: 8px;
+      color: var(--muted);
+      background: transparent;
+      cursor: pointer;
+      font-weight: 800;
+    }
+    .auth-tab.active {
+      color: var(--ink);
+      background: rgba(56, 189, 248, 0.16);
+    }
+    .auth-form { display: grid; gap: 12px; }
+    .auth-form label,
+    .account-card {
+      display: grid;
+      gap: 7px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 800;
+    }
+    .auth-form input {
+      min-height: 46px;
+      width: 100%;
+      color: var(--ink);
+      background: rgba(9, 26, 49, 0.82);
+      border: 1px solid var(--line-soft);
+      border-radius: 8px;
+      padding: 11px 12px;
+    }
+    .auth-error { min-height: 20px; color: var(--rose); font-size: 13px; }
+    .account-card {
+      margin-top: 14px;
+      padding: 12px;
+      border: 1px solid var(--line-soft);
+      border-radius: 8px;
+      background: rgba(8, 23, 42, 0.62);
+    }
+    .account-card strong {
+      color: var(--soft);
+      font-size: 13px;
+      overflow-wrap: anywhere;
+    }
+    .account-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    #chat .chat-grid { grid-template-columns: minmax(0, 1fr); }
+    #chat .insight-stack,
+    #chat > .panel.pad:not(.conversation-panel) { display: none; }
+    .response-details-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 110;
+      background: rgba(1, 8, 18, 0.58);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.16s ease;
+    }
+    .response-details {
+      position: fixed;
+      z-index: 120;
+      top: 0;
+      right: 0;
+      width: min(440px, 92vw);
+      height: 100dvh;
+      padding: 18px;
+      padding-top: max(18px, env(safe-area-inset-top));
+      padding-bottom: max(18px, env(safe-area-inset-bottom));
+      border-left: 1px solid var(--line-soft);
+      background: linear-gradient(180deg, rgba(16, 36, 63, 0.98), rgba(9, 26, 49, 0.96));
+      box-shadow: -24px 0 70px rgba(0, 0, 0, 0.4);
+      transform: translateX(102%);
+      transition: transform 0.18s ease;
+      overflow: auto;
+    }
+    body.details-open .response-details { transform: translateX(0); }
+    body.details-open .response-details-backdrop {
+      opacity: 1;
+      pointer-events: auto;
+    }
+    .details-head {
+      display: flex;
+      align-items: start;
+      justify-content: space-between;
+      gap: 12px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--line-soft);
+      margin-bottom: 14px;
+    }
+    .details-head h2 { font-size: 18px; }
+    .details-body { display: grid; gap: 12px; }
     .material-symbols-outlined {
       font-family: "Material Symbols Outlined";
       font-weight: normal;
@@ -2966,6 +3936,19 @@ APP_HTML = """<!doctype html>
       }
     }
     @media (max-width: 640px) {
+      .response-details {
+        top: auto;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        width: 100%;
+        height: min(78dvh, 720px);
+        border-left: 0;
+        border-top: 1px solid var(--line-soft);
+        border-radius: 18px 18px 0 0;
+        transform: translateY(104%);
+      }
+      body.details-open .response-details { transform: translateY(0); }
       .mobile-topbar { min-height: 58px; padding-inline: 10px; }
       .mobile-topbar .badge {
         max-width: 94px;
@@ -3046,7 +4029,34 @@ APP_HTML = """<!doctype html>
     }
   </style>
 </head>
-<body>
+<body class="auth-required">
+  <section class="auth-shell" id="authShell" aria-label="Sign in">
+    <div class="auth-card">
+      <div class="brand-mark"><span class="material-symbols-outlined">memory</span></div>
+      <div>
+        <span class="stitch-note">Secure Workspace</span>
+        <h1>Agentic RAG</h1>
+        <p>Sign in to keep your RAG conversations, memory, citations, and source traces isolated to your account.</p>
+      </div>
+      <div class="auth-tabs" role="tablist" aria-label="Authentication">
+        <button class="auth-tab active" id="loginTab" type="button" data-auth-mode="login">Login</button>
+        <button class="auth-tab" id="signupTab" type="button" data-auth-mode="signup">Sign up</button>
+      </div>
+      <form class="auth-form" id="authForm">
+        <label id="displayNameLabel" hidden>Name
+          <input id="authName" autocomplete="name" placeholder="Your name">
+        </label>
+        <label>Email
+          <input id="authEmail" type="email" autocomplete="email" placeholder="you@example.com" required>
+        </label>
+        <label>Password
+          <input id="authPassword" type="password" autocomplete="current-password" placeholder="At least 8 characters" required>
+        </label>
+        <button class="primary" id="authSubmit" type="submit">Login</button>
+        <p class="auth-error" id="authError" aria-live="polite"></p>
+      </form>
+    </div>
+  </section>
   <header class="mobile-topbar desktop-hidden" aria-label="Mobile navigation">
     <button class="icon-button" id="drawerToggle" type="button" aria-controls="sidebarDrawer" aria-expanded="false" title="Open navigation">
       <span class="material-symbols-outlined">menu</span>
@@ -3073,6 +4083,13 @@ APP_HTML = """<!doctype html>
         <p>Production-style AI chat over local corpus files and Wikipedia text retrieval.</p>
       </section>
       <button class="primary new-chat-button" id="newSessionButton" type="button"><span class="material-symbols-outlined">add</span> New Chat</button>
+      <section class="account-card" id="accountCard">
+        <span class="stitch-note">Signed in</span>
+        <div class="account-row">
+          <strong id="accountEmail">-</strong>
+          <button class="icon-button" id="logoutButton" type="button" title="Logout"><span class="material-symbols-outlined">logout</span></button>
+        </div>
+      </section>
       <section class="sidebar-section">
         <div class="sidebar-title">
           <span>Saved Chats</span>
@@ -3274,6 +4291,21 @@ APP_HTML = """<!doctype html>
       </section>
     </main>
   </div>
+  <div class="response-details-backdrop" id="detailsBackdrop" aria-hidden="true"></div>
+  <section class="response-details" id="responseDetails" aria-hidden="true" aria-label="Response details">
+    <div class="details-head">
+      <div>
+        <span class="stitch-note">Response Details</span>
+        <h2 id="detailsTitle">Sources and guardrails</h2>
+      </div>
+      <button class="icon-button" id="detailsClose" type="button" title="Close details">
+        <span class="material-symbols-outlined">close</span>
+      </button>
+    </div>
+    <div class="details-body" id="detailsBody">
+      <p class="empty">Open details from an assistant message to inspect citations, retrieved sources, and guardrails.</p>
+    </div>
+  </section>
 
   <script>
     const state = {
@@ -3286,7 +4318,10 @@ APP_HTML = """<!doctype html>
       isGenerating: false,
       responsiveReady: false,
       editingMessageId: null,
-      chatSearch: ""
+      chatSearch: "",
+      currentUser: null,
+      authMode: "login",
+      detailsTurn: null
     };
     const LOCAL_CHAT_KEY = "agentic_rag_chats_v1";
     const $ = (selector) => document.querySelector(selector);
@@ -3301,7 +4336,50 @@ APP_HTML = """<!doctype html>
     const badge = (text, kind = "") => `<span class="badge ${kind}">${escapeHtml(text)}</span>`;
     const empty = (text) => `<p class="empty">${escapeHtml(text)}</p>`;
 
+    async function apiFetch(url, options = {}) {
+      const response = await fetch(url, {
+        credentials: "same-origin",
+        ...options,
+        headers: {
+          ...(options.body ? { "Content-Type": "application/json" } : {}),
+          ...(options.headers || {})
+        }
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.detail || payload.message || "Request failed");
+      return payload;
+    }
+
+    function setAuthMode(mode) {
+      state.authMode = mode;
+      $$(".auth-tab").forEach((button) => {
+        button.classList.toggle("active", button.dataset.authMode === mode);
+      });
+      $("#displayNameLabel").hidden = mode !== "signup";
+      $("#authSubmit").textContent = mode === "signup" ? "Create Account" : "Login";
+      $("#authPassword").setAttribute("autocomplete", mode === "signup" ? "new-password" : "current-password");
+      $("#authError").textContent = "";
+    }
+
+    function showAuthenticatedApp(user) {
+      state.currentUser = user;
+      document.body.classList.remove("auth-required");
+      $("#accountEmail").textContent = user.email;
+      $("#authPassword").value = "";
+      $("#authError").textContent = "";
+    }
+
+    function showAuthGate() {
+      state.currentUser = null;
+      state.sessions = [];
+      state.activeSession = null;
+      state.activeSessionId = null;
+      document.body.classList.add("auth-required");
+      renderSession(null);
+    }
+
     function readLocalChats() {
+      if (state.currentUser) return [];
       try {
         const payload = JSON.parse(localStorage.getItem(LOCAL_CHAT_KEY) || "[]");
         return Array.isArray(payload) ? payload : [];
@@ -3311,6 +4389,7 @@ APP_HTML = """<!doctype html>
     }
 
     function writeLocalChats(sessions) {
+      if (state.currentUser) return;
       try {
         localStorage.setItem(LOCAL_CHAT_KEY, JSON.stringify(sessions.slice(0, 40)));
       } catch (_error) {
@@ -3357,6 +4436,7 @@ APP_HTML = """<!doctype html>
     }
 
     function saveLocalSession(session) {
+      if (state.currentUser) return;
       if (!session || !session.session_id) return;
       const local = readLocalChats().filter((item) => item.session_id !== session.session_id);
       const stored = {
@@ -3463,8 +4543,16 @@ APP_HTML = """<!doctype html>
       };
     }
 
-    function ensureActiveThread(prompt) {
+    async function ensureActiveThread(prompt) {
       if (state.activeSession && state.activeSessionId) return state.activeSession;
+      if (state.currentUser) {
+        const payload = await apiFetch("/api/chats", {
+          method: "POST",
+          body: JSON.stringify({ session_name: sessionTitleFromPrompt(prompt) })
+        });
+        renderSession(payload);
+        return state.activeSession;
+      }
       const thread = createLocalThread(prompt);
       state.activeSession = thread;
       state.activeSessionId = thread.session_id;
@@ -3748,7 +4836,7 @@ APP_HTML = """<!doctype html>
         return;
       }
 
-      const thread = ensureActiveThread(body.message);
+      const thread = await ensureActiveThread(body.message);
       body.session_id = thread.session_id;
       body.session_name = thread.session_name;
       body.memory_context = buildThreadMemory(thread, body.message);
@@ -3757,20 +4845,10 @@ APP_HTML = """<!doctype html>
       $("#question").value = "";
       try {
         const endpoint = `/api/chats/${encodeURIComponent(thread.session_id)}/messages`;
-        let response = await fetch(endpoint, {
+        const payload = await apiFetch(endpoint, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body)
         });
-        if (!response.ok && response.status === 404) {
-          response = await fetch("/api/chat", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(body)
-          });
-        }
-        const payload = await response.json();
-        if (!response.ok) throw new Error(payload.detail || "Request failed");
         renderChat(payload, body.message, thread);
         await loadHistory();
         renderSessionList();
@@ -3876,12 +4954,12 @@ APP_HTML = """<!doctype html>
     }
 
     async function loadHistory() {
-      const localSessions = readLocalChats().map(sessionSummary);
+      const localSessions = state.currentUser ? [] : readLocalChats().map(sessionSummary);
       try {
-        const response = await fetch("/api/chat/history");
-        const payload = await response.json();
-        if (!response.ok) throw new Error(payload.detail || "Could not load history");
-        state.sessions = mergeSessions(payload.sessions || [], localSessions);
+        const payload = await apiFetch("/api/chats");
+        state.sessions = state.currentUser
+          ? (payload.sessions || [])
+          : mergeSessions(payload.sessions || [], localSessions);
         renderSessionList();
       } catch (error) {
         state.sessions = localSessions;
@@ -3922,11 +5000,9 @@ APP_HTML = """<!doctype html>
     }
 
     async function loadSession(sessionId) {
-      const local = findLocalSession(sessionId);
+      const local = state.currentUser ? null : findLocalSession(sessionId);
       try {
-        const response = await fetch(`/api/chat/history/${encodeURIComponent(sessionId)}`);
-        const payload = await response.json();
-        if (!response.ok) throw new Error(payload.detail || "Could not load session");
+        const payload = await apiFetch(`/api/chats/${encodeURIComponent(sessionId)}`);
         const payloadTurns = (payload.history || []).length;
         const localTurns = local ? normalizedHistory(local).length : 0;
         const session = local && localTurns > payloadTurns ? local : payload;
@@ -4002,16 +5078,7 @@ APP_HTML = """<!doctype html>
           typeof meta.confidence === "number" ? badge(`confidence ${meta.confidence}`, meta.needs_review ? "warn" : "good") : "",
           meta.wikipedia_count ? badge(`${meta.wikipedia_count} wiki`, "good") : ""
         ].join("");
-        const citationCards = (turn.citations || []).slice(0, 4).map((citation) => `
-          <details class="item citation-card" open>
-            <summary>
-              <span>${escapeHtml(citation.page_title || citation.file_name || "Source")}</span>
-              <span>${escapeHtml(citation.source_type || "local")}</span>
-            </summary>
-            <p>${escapeHtml(citation.snippet || "")}</p>
-            ${citation.source_url ? `<p><a href="${escapeHtml(citation.source_url)}" target="_blank" rel="noreferrer">${escapeHtml(citation.source_url)}</a></p>` : ""}
-          </details>
-        `).join("");
+        const sourceCount = (turn.citations || []).length || (turn.source_snippets || []).length || 0;
         const editing = state.editingMessageId === turn.user_message_id;
         const userBody = editing
           ? `
@@ -4041,9 +5108,9 @@ APP_HTML = """<!doctype html>
               <div class="message-meta">${metaBadges}</div>
               <div class="message-actions">
                 <button class="message-action" data-action="copy" data-copy="${escapeHtml(turn.ai_response)}" type="button">Copy</button>
+                <button class="message-action" data-action="details" data-message-id="${escapeHtml(turn.assistant_message_id)}" type="button">${sourceCount ? `${sourceCount} Sources` : "Details"}</button>
                 ${isLatestTurn ? `<button class="message-action" data-action="regenerate" type="button">Regenerate</button>` : ""}
               </div>
-              ${citationCards ? `<div class="attention"><h4>Sources</h4>${citationCards}</div>` : ""}
             </div>
           </article>
         `;
@@ -4098,6 +5165,107 @@ APP_HTML = """<!doctype html>
       $$("#messages [data-action='regenerate']").forEach((button) => {
         button.addEventListener("click", regenerateLatestResponse);
       });
+      $$("#messages [data-action='details']").forEach((button) => {
+        button.addEventListener("click", () => openResponseDetails(button.dataset.messageId));
+      });
+      const draft = $("#editDraft");
+      if (draft) {
+        draft.addEventListener("keydown", (event) => {
+          if (event.key === "Escape") {
+            event.preventDefault();
+            state.editingMessageId = null;
+            renderSessionMessages(normalizedHistory(state.activeSession));
+            return;
+          }
+          const shouldSave = event.key === "Enter"
+            && !event.shiftKey
+            && !event.altKey
+            && !event.ctrlKey
+            && !event.metaKey
+            && !event.isComposing
+            && !isMobileTextInput();
+          if (shouldSave) {
+            event.preventDefault();
+            if (!draft.value.trim() || state.isGenerating) return;
+            editUserMessage(state.editingMessageId);
+          }
+        });
+      }
+    }
+
+    function openResponseDetails(assistantMessageId) {
+      const turn = normalizedHistory(state.activeSession).find((item) => item.assistant_message_id === assistantMessageId);
+      if (!turn) return;
+      state.detailsTurn = turn;
+      const meta = turn.metadata || {};
+      const citations = turn.citations || [];
+      const snippets = turn.source_snippets || [];
+      $("#detailsTitle").textContent = `Response ${turn.turn_id ? turn.turn_id.replace("turn_", "#") : "details"}`;
+      $("#detailsBody").innerHTML = `
+        <article class="item">
+          <header><span>Run Metadata</span><span>${escapeHtml(meta.provider || "RAG")}</span></header>
+          <div class="badge-row">
+            ${meta.retrieval_mode ? badge(meta.retrieval_mode) : ""}
+            ${typeof meta.confidence === "number" ? badge(`confidence ${meta.confidence}`, meta.needs_review ? "warn" : "good") : ""}
+            ${meta.needs_review ? badge("needs review", "warn") : badge("finalized", "good")}
+          </div>
+        </article>
+        <article class="item">
+          <header><span>Citations</span><span>${citations.length}</span></header>
+          <div class="list">
+            ${citations.map((citation) => `
+              <details class="item citation-card" open>
+                <summary>
+                  <span>${escapeHtml(citation.page_title || citation.file_name || "Source")}</span>
+                  <span>${escapeHtml(citation.source_type || "local")}</span>
+                </summary>
+                <p>${escapeHtml(citation.snippet || "")}</p>
+                ${citation.source_url ? `<p><a href="${escapeHtml(citation.source_url)}" target="_blank" rel="noreferrer">${escapeHtml(citation.source_url)}</a></p>` : ""}
+              </details>
+            `).join("") || empty("No citations returned for this response.")}
+          </div>
+        </article>
+        <article class="item">
+          <header><span>Retrieved Sources</span><span>${snippets.length}</span></header>
+          <div class="list">
+            ${snippets.map((item) => `
+              <details class="item citation-card">
+                <summary>
+                  <span>${escapeHtml(item.page_title || item.file_name || item.path || "Source")}</span>
+                  <span>${escapeHtml(item.source_type || item.source || "local")}</span>
+                </summary>
+                <p>${escapeHtml(item.snippet || item.text || "")}</p>
+                ${item.source_url ? `<p><a href="${escapeHtml(item.source_url)}" target="_blank" rel="noreferrer">${escapeHtml(item.source_url)}</a></p>` : ""}
+              </details>
+            `).join("") || empty("No retrieved snippets stored for this response.")}
+          </div>
+        </article>
+        ${meta.guardrails ? `
+          <article class="item">
+            <header><span>Guardrails</span><span>${meta.guardrails.passed ? "Passed" : "Review"}</span></header>
+            <div class="badge-row">
+              ${badge(`coverage ${meta.guardrails.citation_coverage}`, meta.guardrails.citation_coverage >= 0.5 ? "good" : "warn")}
+              ${badge(`floor ${meta.guardrails.retrieval_score_floor_met ? "met" : "missed"}`, meta.guardrails.retrieval_score_floor_met ? "good" : "warn")}
+            </div>
+            ${(meta.guardrails.risk_flags || []).map((flag) => `<p>${escapeHtml(flag)}</p>`).join("") || "<p>No risk flags triggered.</p>"}
+          </article>
+        ` : ""}
+        ${meta.pipeline && meta.pipeline.length ? `
+          <article class="item">
+            <header><span>Pipeline</span><span>${meta.pipeline.length} steps</span></header>
+            <div class="list">
+              ${meta.pipeline.map((step) => `<p><strong>${escapeHtml(step.title || step.stage)}</strong>: ${escapeHtml(step.status)} - ${escapeHtml(step.summary || "")}</p>`).join("")}
+            </div>
+          </article>
+        ` : ""}
+      `;
+      document.body.classList.add("details-open");
+      $("#responseDetails").setAttribute("aria-hidden", "false");
+    }
+
+    function closeResponseDetails() {
+      document.body.classList.remove("details-open");
+      $("#responseDetails").setAttribute("aria-hidden", "true");
     }
 
     async function editUserMessage(messageId) {
@@ -4121,20 +5289,10 @@ APP_HTML = """<!doctype html>
       };
       setGenerating(true);
       try {
-        let response = await fetch(`/api/chats/${encodeURIComponent(state.activeSessionId)}/messages/${encodeURIComponent(messageId)}`, {
+        const payload = await apiFetch(`/api/chats/${encodeURIComponent(state.activeSessionId)}/messages/${encodeURIComponent(messageId)}`, {
           method: "PATCH",
-          headers: { "Content-Type": "application/json" },
           body: JSON.stringify(requestBody)
         });
-        if (!response.ok && response.status === 404) {
-          response = await fetch("/api/chat", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(requestBody)
-          });
-        }
-        const payload = await response.json();
-        if (!response.ok) throw new Error(payload.detail || "Could not edit prompt");
         state.editingMessageId = null;
         if (payload.answer !== undefined || payload.finalized_answer !== undefined) {
           const editedTurn = createTurnFromPayload(message, payload, {
@@ -4186,20 +5344,10 @@ APP_HTML = """<!doctype html>
       `);
       $("#messages").scrollTop = $("#messages").scrollHeight;
       try {
-        let response = await fetch(`/api/chats/${encodeURIComponent(state.activeSessionId)}/regenerate`, {
+        const payload = await apiFetch(`/api/chats/${encodeURIComponent(state.activeSessionId)}/regenerate`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
           body: JSON.stringify(requestBody)
         });
-        if (!response.ok && response.status === 404) {
-          response = await fetch("/api/chat", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(requestBody)
-          });
-        }
-        const payload = await response.json();
-        if (!response.ok) throw new Error(payload.detail || "Could not regenerate answer");
         if (payload.answer !== undefined || payload.finalized_answer !== undefined) {
           const regeneratedTurn = createTurnFromPayload(latestTurn.user_prompt, payload, latestTurn);
           regeneratedTurn.edited = Boolean(latestTurn.edited);
@@ -4255,7 +5403,11 @@ APP_HTML = """<!doctype html>
         || (payload.history && payload.history.length ? payload.history[payload.history.length - 1].user_prompt : "")
         || "";
       const nextTurn = createTurnFromPayload(responsePrompt, payload);
-      const updatedThread = threadWithHistory(thread, [...history, nextTurn], payload);
+      const payloadHistory = normalizedHistory(payload);
+      const nextHistory = state.currentUser && payloadHistory.length >= history.length + 1
+        ? payloadHistory
+        : [...history, nextTurn];
+      const updatedThread = threadWithHistory(thread, nextHistory, payload);
       persistActiveThread(updatedThread);
       $("#currentSessionName").textContent = state.activeSession.session_name;
       updateMobileHeader("Saved");
@@ -4346,6 +5498,51 @@ APP_HTML = """<!doctype html>
       });
     }
 
+    async function bootstrapAuth() {
+      const payload = await apiFetch("/api/auth/me");
+      if (!payload.authenticated || !payload.user) {
+        showAuthGate();
+        return;
+      }
+      showAuthenticatedApp(payload.user);
+      await loadRuntime();
+      renderSessionList();
+    }
+
+    $$(".auth-tab").forEach((button) => {
+      button.addEventListener("click", () => setAuthMode(button.dataset.authMode));
+    });
+
+    $("#authForm").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      $("#authSubmit").disabled = true;
+      $("#authError").textContent = "";
+      try {
+        const payload = await apiFetch(state.authMode === "signup" ? "/api/auth/signup" : "/api/auth/login", {
+          method: "POST",
+          body: JSON.stringify({
+            email: $("#authEmail").value.trim(),
+            password: $("#authPassword").value,
+            display_name: $("#authName").value.trim()
+          })
+        });
+        showAuthenticatedApp(payload.user);
+        await loadRuntime();
+        renderSession(null);
+        renderSessionList();
+        $("#question").focus();
+      } catch (error) {
+        $("#authError").textContent = error.message;
+      } finally {
+        $("#authSubmit").disabled = false;
+      }
+    });
+
+    $("#logoutButton").addEventListener("click", async () => {
+      await apiFetch("/api/auth/logout", { method: "POST" }).catch(() => null);
+      showAuthGate();
+    });
+
     $("#askForm").addEventListener("submit", (event) => {
       event.preventDefault();
       submitPrompt();
@@ -4380,23 +5577,30 @@ APP_HTML = """<!doctype html>
       renderSessionList();
     });
 
-    $("#newSessionButton").addEventListener("click", () => {
+    $("#newSessionButton").addEventListener("click", async () => {
       closeDrawer();
-      renderSession(null);
-      renderSessionList();
-      $("#question").value = "";
-      $("#question").focus();
+      $("#newSessionButton").disabled = true;
+      try {
+        const payload = state.currentUser
+          ? await apiFetch("/api/chats", { method: "POST", body: JSON.stringify({ session_name: "New RAG conversation" }) })
+          : null;
+        renderSession(payload);
+        await loadHistory();
+        renderSessionList();
+        $("#question").value = "";
+        $("#question").focus();
+      } finally {
+        $("#newSessionButton").disabled = false;
+      }
     });
 
     $("#cloneSessionButton").addEventListener("click", async () => {
       if (!state.activeSessionId) return;
       $("#cloneSessionButton").disabled = true;
       try {
-        const response = await fetch(`/api/chat/history/${encodeURIComponent(state.activeSessionId)}/clone`, {
+        const payload = await apiFetch(`/api/chat/history/${encodeURIComponent(state.activeSessionId)}/clone`, {
           method: "POST"
         });
-        const payload = await response.json();
-        if (!response.ok) throw new Error(payload.detail || "Could not clone session");
         renderSession(payload);
         await loadHistory();
         renderSessionList();
@@ -4446,8 +5650,13 @@ APP_HTML = """<!doctype html>
     $("#drawerToggle").addEventListener("click", openDrawer);
     $("#drawerClose").addEventListener("click", closeDrawer);
     $("#drawerOverlay").addEventListener("click", closeDrawer);
+    $("#detailsClose").addEventListener("click", closeResponseDetails);
+    $("#detailsBackdrop").addEventListener("click", closeResponseDetails);
     document.addEventListener("keydown", (event) => {
-      if (event.key === "Escape") closeDrawer();
+      if (event.key === "Escape") {
+        closeDrawer();
+        closeResponseDetails();
+      }
     });
     document.addEventListener("toggle", (event) => {
       if (!state.responsiveReady) return;
@@ -4459,8 +5668,10 @@ APP_HTML = """<!doctype html>
     syncResponsivePanels();
     state.responsiveReady = true;
 
-    loadRuntime().catch((error) => {
+    setAuthMode("login");
+    bootstrapAuth().catch((error) => {
       $("#badges").innerHTML = badge(error.message, "bad");
+      showAuthGate();
     });
     bindPromptButtons();
   </script>
@@ -4485,6 +5696,12 @@ def api_info() -> dict[str, Any]:
         "runtime": "/api/runtime",
         "corpus": "/api/corpus",
         "capabilities": "/api/capabilities",
+        "auth": {
+            "signup": "/api/auth/signup",
+            "login": "/api/auth/login",
+            "logout": "/api/auth/logout",
+            "me": "/api/auth/me",
+        },
         "chat": "/api/chat",
         "chat_history": "/api/chat/history",
         "chats": "/api/chats",
@@ -4514,6 +5731,14 @@ def runtime_info() -> dict[str, Any]:
         "python": platform.python_version(),
         "platform": platform.platform(),
         "hosted": bool(os.getenv("VERCEL")),
+        "auth": {
+            "cookie_name": AUTH_COOKIE_NAME,
+            "session_secret_configured": bool(os.getenv("SESSION_SECRET") or os.getenv("AUTH_SECRET")),
+        },
+        "persistence": {
+            "database": "postgres" if account_store.is_postgres else "sqlite",
+            "database_url_configured": bool(os.getenv("DATABASE_URL")),
+        },
         "azure_openai": _azure_status(),
         "corpus": _corpus_summary(),
         "capabilities": _capabilities(),
@@ -4548,24 +5773,81 @@ def source_view(path: str = Query(..., min_length=1)) -> dict[str, Any]:
     return {"path": path, "text": index.raw_sources[path], "chunks": chunks}
 
 
-@app.get("/api/chat/history", response_model=ChatHistoryList)
-def chat_history() -> ChatHistoryList:
-    return ChatHistoryList(
-        sessions=[_session_summary(session) for session in chat_history_service.list_sessions()]
+@app.post("/api/auth/signup", response_model=AuthResponse)
+def auth_signup(payload: AuthSignupRequest, response: Response) -> AuthResponse:
+    try:
+        user = account_store.create_user(
+            email=payload.email,
+            password=payload.password,
+            display_name=payload.display_name,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    _set_auth_cookie(response, user)
+    return AuthResponse(
+        authenticated=True,
+        user=_public_user(user),
+        message="Account created. Welcome to Agentic RAG.",
     )
 
 
+@app.post("/api/auth/login", response_model=AuthResponse)
+def auth_login(payload: AuthLoginRequest, response: Response) -> AuthResponse:
+    user = account_store.verify_user(payload.email, payload.password)
+    if not user:
+        raise HTTPException(status_code=401, detail="Email or password is incorrect.")
+    _set_auth_cookie(response, user)
+    return AuthResponse(
+        authenticated=True,
+        user=_public_user(user),
+        message="Signed in.",
+    )
+
+
+@app.post("/api/auth/logout", response_model=AuthResponse)
+def auth_logout(response: Response) -> AuthResponse:
+    _clear_auth_cookie(response)
+    return AuthResponse(authenticated=False, user=None, message="Signed out.")
+
+
+@app.get("/api/auth/me", response_model=AuthResponse)
+def auth_me(request: Request) -> AuthResponse:
+    user = current_user_from_request(request)
+    if not user:
+        return AuthResponse(authenticated=False, user=None, message="Signed out.")
+    return AuthResponse(authenticated=True, user=_public_user(user), message="Signed in.")
+
+
+@app.get("/api/chat/history", response_model=ChatHistoryList)
+def chat_history(request: Request = None) -> ChatHistoryList:
+    user = current_user_from_request(request)
+    if request is not None and not user:
+        raise HTTPException(status_code=401, detail="Please log in to view saved chats.")
+    sessions = account_store.list_threads(user["id"]) if user else chat_history_service.list_sessions()
+    return ChatHistoryList(sessions=[_session_summary(session) for session in sessions])
+
+
 @app.get("/api/chat/history/{session_id}", response_model=ChatSessionView)
-def chat_session(session_id: str) -> ChatSessionView:
-    session = chat_history_service.get_session(session_id)
+def chat_session(session_id: str, request: Request = None) -> ChatSessionView:
+    user = current_user_from_request(request)
+    if request is not None and not user:
+        raise HTTPException(status_code=401, detail="Please log in to open this chat.")
+    session = account_store.get_thread(user["id"], session_id) if user else chat_history_service.get_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Chat session not found.")
     return _session_view(session)
 
 
 @app.post("/api/chat/history/{session_id}/clone", response_model=ChatSessionView)
-def clone_chat_session(session_id: str) -> ChatSessionView:
-    session, saved = chat_history_service.clone_session(session_id)
+def clone_chat_session(session_id: str, request: Request = None) -> ChatSessionView:
+    user = current_user_from_request(request)
+    if request is not None and not user:
+        raise HTTPException(status_code=401, detail="Please log in to clone chats.")
+    if user:
+        session = account_store.clone_thread(user["id"], session_id)
+        saved = bool(session)
+    else:
+        session, saved = chat_history_service.clone_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Chat session not found.")
     session.setdefault("metadata", {})["cloned"] = saved
@@ -4573,36 +5855,62 @@ def clone_chat_session(session_id: str) -> ChatSessionView:
 
 
 @app.get("/api/chats", response_model=ChatHistoryList)
-def chats() -> ChatHistoryList:
-    return chat_history()
+def chats(request: Request = None) -> ChatHistoryList:
+    return chat_history(request)
 
 
 @app.post("/api/chats", response_model=ChatSessionView)
-def create_chat(session_name: str | None = Query(default=None, max_length=120)) -> ChatSessionView:
-    session, saved = chat_history_service.create_session(session_name=session_name)
+def create_chat(
+    payload: ChatSessionCreate | None = None,
+    request: Request = None,
+    session_name: str | None = Query(default=None, max_length=120),
+) -> ChatSessionView:
+    user = current_user_from_request(request)
+    name = (payload.session_name if payload else None) or session_name
+    if request is not None and not user:
+        raise HTTPException(status_code=401, detail="Please log in to create chats.")
+    if user:
+        session = account_store.create_thread(user["id"], title=name)
+        saved = True
+    else:
+        session, saved = chat_history_service.create_session(session_name=name)
     session.setdefault("metadata", {})["created"] = saved
     return _session_view(session)
 
 
 @app.get("/api/chats/{session_id}", response_model=ChatSessionView)
-def get_chat(session_id: str) -> ChatSessionView:
-    return chat_session(session_id)
+def get_chat(session_id: str, request: Request = None) -> ChatSessionView:
+    return chat_session(session_id, request)
 
 
 @app.patch("/api/chats/{session_id}", response_model=ChatSessionView)
-def update_chat(session_id: str, payload: ChatSessionUpdate) -> ChatSessionView:
-    session, _saved = chat_history_service.update_session(
-        session_id,
-        session_name=payload.session_name,
-    )
+def update_chat(
+    session_id: str,
+    payload: ChatSessionUpdate,
+    request: Request = None,
+) -> ChatSessionView:
+    user = current_user_from_request(request)
+    if request is not None and not user:
+        raise HTTPException(status_code=401, detail="Please log in to update chats.")
+    if user:
+        session = account_store.update_thread(user["id"], session_id, session_name=payload.session_name)
+    else:
+        session, _saved = chat_history_service.update_session(
+            session_id,
+            session_name=payload.session_name,
+        )
     if not session:
         raise HTTPException(status_code=404, detail="Chat session not found.")
     return _session_view(session)
 
 
 @app.post("/api/chats/{session_id}/messages", response_model=ChatResponse)
-def append_chat_message(session_id: str, payload: ChatRequest) -> ChatResponse:
-    return chat_completion(_copy_chat_request(payload, session_id=session_id))
+def append_chat_message(
+    session_id: str,
+    payload: ChatRequest,
+    request: Request = None,
+) -> ChatResponse:
+    return chat_completion(_copy_chat_request(payload, session_id=session_id), request)
 
 
 @app.patch("/api/chats/{session_id}/messages/{message_id}", response_model=ChatSessionView)
@@ -4610,8 +5918,15 @@ def edit_chat_message(
     session_id: str,
     message_id: str,
     payload: ChatMessageEditRequest,
+    request: Request = None,
 ) -> ChatSessionView:
-    branch_session, turn_index = chat_history_service.session_before_user_message(session_id, message_id)
+    user = current_user_from_request(request)
+    if request is not None and not user:
+        raise HTTPException(status_code=401, detail="Please log in to edit chats.")
+    if user:
+        branch_session, turn_index = account_store.session_before_user_message(user["id"], session_id, message_id)
+    else:
+        branch_session, turn_index = chat_history_service.session_before_user_message(session_id, message_id)
     if not branch_session:
         raise HTTPException(status_code=404, detail="Chat session not found.")
     if turn_index is None:
@@ -4624,17 +5939,31 @@ def edit_chat_message(
         session_name=branch_session.get("session_name"),
     )
     response, _projected_agenda, suggestions, metadata = _generate_chat_turn(chat_payload, branch_session)
-    session, saved = chat_history_service.replace_turn_branch(
-        session_id=session_id,
-        turn_index=turn_index,
-        user_prompt=prompt,
-        ai_response=response.finalized_answer or response.answer,
-        metadata=metadata,
-        citations=response.citations,
-        retrieved_chunks=response.retrieved_chunks,
-        suggestions=suggestions,
-        edited=True,
-    )
+    if user:
+        session, saved = account_store.replace_turn_branch(
+            user_id=user["id"],
+            session_id=session_id,
+            turn_index=turn_index,
+            user_prompt=prompt,
+            ai_response=response.finalized_answer or response.answer,
+            metadata=metadata,
+            citations=response.citations,
+            retrieved_chunks=response.retrieved_chunks,
+            suggestions=suggestions,
+            edited=True,
+        )
+    else:
+        session, saved = chat_history_service.replace_turn_branch(
+            session_id=session_id,
+            turn_index=turn_index,
+            user_prompt=prompt,
+            ai_response=response.finalized_answer or response.answer,
+            metadata=metadata,
+            citations=response.citations,
+            retrieved_chunks=response.retrieved_chunks,
+            suggestions=suggestions,
+            edited=True,
+        )
     if not session:
         raise HTTPException(status_code=404, detail="User message not found.")
     session.setdefault("metadata", {})["last_edit_saved"] = saved
@@ -4645,13 +5974,20 @@ def edit_chat_message(
 def regenerate_chat_response(
     session_id: str,
     payload: ChatRegenerateRequest,
+    request: Request = None,
 ) -> ChatSessionView:
-    branch_session, turn_index = chat_history_service.session_before_latest_turn(session_id)
+    user = current_user_from_request(request)
+    if request is not None and not user:
+        raise HTTPException(status_code=401, detail="Please log in to regenerate chats.")
+    if user:
+        branch_session, turn_index = account_store.session_before_latest_turn(user["id"], session_id)
+    else:
+        branch_session, turn_index = chat_history_service.session_before_latest_turn(session_id)
     if not branch_session:
         raise HTTPException(status_code=404, detail="Chat session not found.")
     if turn_index is None:
         raise HTTPException(status_code=400, detail="No assistant response to regenerate.")
-    original_session = chat_history_service.get_session(session_id)
+    original_session = account_store.get_thread(user["id"], session_id) if user else chat_history_service.get_session(session_id)
     if not original_session:
         raise HTTPException(status_code=404, detail="Chat session not found.")
     history = list(original_session.get("history") or [])
@@ -4666,17 +6002,31 @@ def regenerate_chat_response(
         session_name=branch_session.get("session_name"),
     )
     response, _projected_agenda, suggestions, metadata = _generate_chat_turn(chat_payload, branch_session)
-    session, saved = chat_history_service.replace_turn_branch(
-        session_id=session_id,
-        turn_index=turn_index,
-        user_prompt=prompt,
-        ai_response=response.finalized_answer or response.answer,
-        metadata=metadata,
-        citations=response.citations,
-        retrieved_chunks=response.retrieved_chunks,
-        suggestions=suggestions,
-        edited=bool(latest_turn.get("edited")),
-    )
+    if user:
+        session, saved = account_store.replace_turn_branch(
+            user_id=user["id"],
+            session_id=session_id,
+            turn_index=turn_index,
+            user_prompt=prompt,
+            ai_response=response.finalized_answer or response.answer,
+            metadata=metadata,
+            citations=response.citations,
+            retrieved_chunks=response.retrieved_chunks,
+            suggestions=suggestions,
+            edited=bool(latest_turn.get("edited")),
+        )
+    else:
+        session, saved = chat_history_service.replace_turn_branch(
+            session_id=session_id,
+            turn_index=turn_index,
+            user_prompt=prompt,
+            ai_response=response.finalized_answer or response.answer,
+            metadata=metadata,
+            citations=response.citations,
+            retrieved_chunks=response.retrieved_chunks,
+            suggestions=suggestions,
+            edited=bool(latest_turn.get("edited")),
+        )
     if not session:
         raise HTTPException(status_code=404, detail="Latest turn not found.")
     session.setdefault("metadata", {})["last_regenerate_saved"] = saved
@@ -4684,31 +6034,48 @@ def regenerate_chat_response(
 
 
 @app.delete("/api/chats/{session_id}")
-def delete_chat(session_id: str) -> dict[str, Any]:
-    deleted = chat_history_service.delete_session(session_id)
+def delete_chat(session_id: str, request: Request = None) -> dict[str, Any]:
+    user = current_user_from_request(request)
+    if request is not None and not user:
+        raise HTTPException(status_code=401, detail="Please log in to delete chats.")
+    deleted = account_store.delete_thread(user["id"], session_id) if user else chat_history_service.delete_session(session_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Chat session not found.")
     return {"deleted": True, "session_id": session_id}
 
 
 @app.post("/api/chat", response_model=ChatResponse)
-def chat_completion(payload: ChatRequest) -> ChatResponse:
-    active_session = (
-        chat_history_service.get_session(payload.session_id)
-        if payload.session_id
-        else None
-    )
+def chat_completion(payload: ChatRequest, request: Request = None) -> ChatResponse:
+    user = current_user_from_request(request)
+    active_session = None
+    if user:
+        active_session = account_store.get_thread(user["id"], payload.session_id) if payload.session_id else None
+    elif payload.session_id:
+        active_session = chat_history_service.get_session(payload.session_id)
     response, projected_agenda, suggestions, metadata = _generate_chat_turn(payload, active_session)
-    session, saved = chat_history_service.append_turn(
-        session_id=payload.session_id,
-        session_name=payload.session_name,
-        user_prompt=payload.message.strip(),
-        ai_response=response.finalized_answer or response.answer,
-        metadata=metadata,
-        citations=response.citations,
-        retrieved_chunks=response.retrieved_chunks,
-        suggestions=suggestions,
-    )
+    if user:
+        session, saved = account_store.append_turn(
+            user_id=user["id"],
+            session_id=payload.session_id,
+            session_name=payload.session_name,
+            user_prompt=payload.message.strip(),
+            ai_response=response.finalized_answer or response.answer,
+            metadata=metadata,
+            citations=response.citations,
+            retrieved_chunks=response.retrieved_chunks,
+            suggestions=suggestions,
+        )
+    else:
+        session, saved = chat_history_service.append_turn(
+            session_id=payload.session_id,
+            session_name=payload.session_name,
+            user_prompt=payload.message.strip(),
+            ai_response=response.finalized_answer or response.answer,
+            metadata=metadata,
+            citations=response.citations,
+            retrieved_chunks=response.retrieved_chunks,
+            suggestions=suggestions,
+        )
     response.session_id = session["session_id"]
     response.session_name = session["session_name"]
     session_view = _session_view(session)
@@ -4722,8 +6089,8 @@ def chat_completion(payload: ChatRequest) -> ChatResponse:
 
 
 @app.post("/api/query", response_model=ChatResponse)
-def query(payload: ChatRequest) -> ChatResponse:
-    return chat_completion(payload)
+def query(payload: ChatRequest, request: Request = None) -> ChatResponse:
+    return chat_completion(payload, request)
 
 
 @app.post("/api/evaluate", response_model=EvaluationResponse)

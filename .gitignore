@@ -26,6 +26,8 @@ htmlcov/
 artifacts/
 data/chat_history/*.json
 data/chat_history/*.tmp
+data/agentic_rag_app.sqlite3
+data/agentic_rag_app.sqlite3-*
 data/uploads/
 *.zip
 *.log
