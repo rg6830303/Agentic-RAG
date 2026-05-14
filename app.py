@@ -12,7 +12,6 @@ import platform
 import re
 import secrets
 import sqlite3
-import tempfile
 import time
 from collections import Counter, defaultdict
 from dataclasses import dataclass
@@ -25,7 +24,7 @@ from uuid import uuid4
 
 import requests
 from fastapi import FastAPI, HTTPException, Query, Request, Response
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 
@@ -36,14 +35,14 @@ CORPUS_DIR = ROOT_DIR / "data" / "sample_corpus"
 GOLDEN_EVAL_PATH = ROOT_DIR / "data" / "golden_eval" / "ncert_physics_golden.json"
 CHAT_HISTORY_DIR = ROOT_DIR / "data" / "chat_history"
 APP_DB_PATH = ROOT_DIR / "data" / "agentic_rag_app.sqlite3"
-EPHEMERAL_APP_DB_PATH = Path(tempfile.gettempdir()) / "agentic_rag_app.sqlite3"
 SUPPORTED_CORPUS_EXTENSIONS = {".csv", ".json", ".md", ".sql", ".txt"}
 SESSION_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_-]{8,80}$")
 AUTH_COOKIE_NAME = os.getenv("AUTH_COOKIE_NAME", "agentic_rag_session")
 AUTH_SESSION_SECONDS = 60 * 60 * 24 * 7
 PASSWORD_HASH_ITERATIONS = 260_000
 DEV_AUTH_SECRET = secrets.token_urlsafe(48)
-AUTH_SESSION_SECRET_SETTING = "auth_session_secret"
+AUTH_CONFIG_ERROR = "Authentication is not configured"
+AUTH_CONFIG_DETAIL = "Set DATABASE_URL and SESSION_SECRET in Vercel Environment Variables."
 WIKIPEDIA_API_URL = "https://en.wikipedia.org/w/api.php"
 WIKIPEDIA_USER_AGENT = "Agentic-RAG/0.3 (https://github.com/rg6830303/Agentic-RAG)"
 WIKIPEDIA_TIMEOUT_SECONDS = 4
@@ -328,11 +327,39 @@ class AuthResponse(BaseModel):
     message: str = ""
 
 
+class AuthDebugResponse(BaseModel):
+    auth_configured: bool
+    database_url_present: bool
+    session_secret_present: bool
+    database_reachable: bool
+    cookie_name: str
+    production: bool
+    missing: list[str] = Field(default_factory=list)
+    error: str = ""
+    detail: str = ""
+
+
+class AuthConfigurationError(Exception):
+    def __init__(self, detail: str = AUTH_CONFIG_DETAIL) -> None:
+        self.detail = detail
+
+
 app = FastAPI(
     title=SERVICE_NAME,
     version=SERVICE_VERSION,
     description="FastAPI UI and API for an advanced agentic RAG workflow.",
 )
+
+
+@app.exception_handler(AuthConfigurationError)
+def auth_configuration_error_handler(_request: Request, exc: AuthConfigurationError) -> JSONResponse:
+    return JSONResponse(
+        status_code=503,
+        content={
+            "error": AUTH_CONFIG_ERROR,
+            "detail": exc.detail,
+        },
+    )
 
 
 def _utc_now_iso() -> str:
@@ -412,25 +439,13 @@ def _verify_password(password: str, password_hash: str) -> bool:
     return hmac.compare_digest(actual, expected)
 
 
-def _database_auth_secret() -> str | None:
-    try:
-        store = get_account_store(required=False)
-        if store is None:
-            return None
-        return store.get_or_create_auth_secret()
-    except Exception as exc:  # pragma: no cover - defensive for deployed database interruptions.
-        LOGGER.warning("Could not load database-backed auth secret: %s", exc.__class__.__name__)
-        return None
-
-
 def _auth_secret() -> bytes:
     secret = os.getenv("SESSION_SECRET") or os.getenv("AUTH_SECRET")
     if secret:
         return secret.encode("utf-8")
-    database_secret = _database_auth_secret()
-    if database_secret:
-        return database_secret.encode("utf-8")
-    # Last-resort local fallback only. Production deployments should set SESSION_SECRET.
+    if _production_runtime():
+        raise AuthConfigurationError()
+    # Local development fallback only. Production deployments must set SESSION_SECRET or AUTH_SECRET.
     return DEV_AUTH_SECRET.encode("utf-8")
 
 
@@ -447,7 +462,7 @@ def _configured_database_url() -> str | None:
     if database_url:
         return database_url
     if _production_runtime():
-        return f"sqlite:///{EPHEMERAL_APP_DB_PATH}"
+        return None
     return f"sqlite:///{APP_DB_PATH}"
 
 
@@ -458,33 +473,29 @@ def _durable_auth_configured() -> bool:
 
 
 def _auth_setup_error() -> str:
-    return ""
+    missing = _missing_auth_configuration()
+    if not missing:
+        return ""
+    return f"{AUTH_CONFIG_ERROR}. {AUTH_CONFIG_DETAIL} Missing: {', '.join(missing)}."
 
 
 def _auth_setup_warning() -> str:
+    return _auth_setup_error()
+
+
+def _missing_auth_configuration() -> list[str]:
     if not _production_runtime():
-        return ""
-    warnings: list[str] = []
-    has_database_url = bool(os.getenv("DATABASE_URL"))
-    has_env_secret = bool(os.getenv("SESSION_SECRET") or os.getenv("AUTH_SECRET"))
-    if not has_database_url:
-        warnings.append("Authentication is not configured. Set DATABASE_URL and SESSION_SECRET in Vercel.")
-        warnings.append("DATABASE_URL is not set, so accounts and chats use temporary server storage.")
-    if not has_env_secret:
-        if has_database_url:
-            warnings.append("Authentication is not configured. Set DATABASE_URL and SESSION_SECRET in Vercel.")
-            warnings.append("SESSION_SECRET is not set, so the database will keep a generated session signing key.")
-        else:
-            warnings.append("SESSION_SECRET is not set, so sessions may reset with temporary server storage.")
-    deduped = list(dict.fromkeys(warnings))
-    return " ".join(deduped)
+        return []
+    missing: list[str] = []
+    if not os.getenv("DATABASE_URL"):
+        missing.append("DATABASE_URL")
+    if not (os.getenv("SESSION_SECRET") or os.getenv("AUTH_SECRET")):
+        missing.append("SESSION_SECRET/AUTH_SECRET")
+    return missing
 
 
-def _auth_unavailable_exception(detail: str | None = None) -> HTTPException:
-    return HTTPException(
-        status_code=503,
-        detail=detail or "Auth is not configured. DATABASE_URL and SESSION_SECRET are required in production.",
-    )
+def _auth_unavailable_exception(detail: str | None = None) -> AuthConfigurationError:
+    return AuthConfigurationError(detail or AUTH_CONFIG_DETAIL)
 
 
 def _public_user(user: dict[str, Any]) -> AuthUserView:
@@ -1332,47 +1343,11 @@ class AccountStore:
                 suggestions_json TEXT NOT NULL DEFAULT '[]'
             )
             """,
-            """
-            CREATE TABLE IF NOT EXISTS app_settings (
-                setting_key TEXT PRIMARY KEY,
-                setting_value TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            )
-            """,
             "CREATE INDEX IF NOT EXISTS idx_chat_threads_user_updated ON chat_threads(user_id, updated_at)",
             "CREATE INDEX IF NOT EXISTS idx_chat_messages_thread_created ON chat_messages(thread_id, created_at)",
         ]
         for statement in statements:
             self._execute(statement)
-
-    def get_or_create_auth_secret(self) -> str:
-        row = self._fetchone(
-            "SELECT setting_value FROM app_settings WHERE setting_key = ?",
-            (AUTH_SESSION_SECRET_SETTING,),
-        )
-        if row and str(row.get("setting_value") or ""):
-            return str(row["setting_value"])
-
-        now = _utc_now_iso()
-        secret = secrets.token_urlsafe(48)
-        try:
-            self._execute(
-                """
-                INSERT INTO app_settings (setting_key, setting_value, created_at, updated_at)
-                VALUES (?, ?, ?, ?)
-                """,
-                (AUTH_SESSION_SECRET_SETTING, secret, now, now),
-            )
-        except Exception:
-            row = self._fetchone(
-                "SELECT setting_value FROM app_settings WHERE setting_key = ?",
-                (AUTH_SESSION_SECRET_SETTING,),
-            )
-            if row and str(row.get("setting_value") or ""):
-                return str(row["setting_value"])
-            raise
-        return secret
 
     def create_user(self, email: str, password: str, display_name: str | None = None) -> dict[str, Any]:
         normalized_email = _normalize_email(email)
@@ -1917,13 +1892,10 @@ def get_account_store(required: bool = True) -> AccountStore | None:
 def _account_store_status(check_reachable: bool = False) -> dict[str, Any]:
     database_url = _configured_database_url()
     store = account_store
-    uses_ephemeral_sqlite = _production_runtime() and not os.getenv("DATABASE_URL")
     status: dict[str, Any] = {
         "database": (
             "postgres"
             if database_url and database_url.startswith(("postgres://", "postgresql://"))
-            else "sqlite_ephemeral"
-            if uses_ephemeral_sqlite
             else "sqlite"
             if database_url
             else "unconfigured"
@@ -1933,7 +1905,7 @@ def _account_store_status(check_reachable: bool = False) -> dict[str, Any]:
         "durable_database_configured": bool(os.getenv("DATABASE_URL")) or not _production_runtime(),
         "production_runtime": _production_runtime(),
         "durable": bool(os.getenv("DATABASE_URL")) or not _production_runtime(),
-        "ephemeral": uses_ephemeral_sqlite,
+        "ephemeral": False,
         "available": store is not None,
         "reachable": None,
         "error": ACCOUNT_STORE_ERROR or _auth_setup_error(),
@@ -1955,6 +1927,23 @@ def _account_store_status(check_reachable: bool = False) -> dict[str, Any]:
         status["reachable"] = False
         status["error"] = f"Database health check failed ({exc.__class__.__name__})."
     return status
+
+
+def _auth_debug_status(check_reachable: bool = True) -> dict[str, Any]:
+    persistence = _account_store_status(check_reachable=check_reachable)
+    database_reachable = persistence.get("reachable")
+    missing = _missing_auth_configuration()
+    return {
+        "auth_configured": not missing,
+        "database_url_present": bool(os.getenv("DATABASE_URL")),
+        "session_secret_present": bool(os.getenv("SESSION_SECRET") or os.getenv("AUTH_SECRET")),
+        "database_reachable": bool(database_reachable) if database_reachable is not None else False,
+        "cookie_name": AUTH_COOKIE_NAME,
+        "production": _production_runtime(),
+        "missing": missing,
+        "error": AUTH_CONFIG_ERROR if missing else str(persistence.get("error") or ""),
+        "detail": _auth_setup_error() if missing else str(persistence.get("error") or ""),
+    }
 
 
 def current_user_from_request(request: Request | None) -> dict[str, Any] | None:
@@ -4589,7 +4578,7 @@ APP_HTML = """<!doctype html>
 
     async function apiFetch(url, options = {}) {
       const response = await fetch(url, {
-        credentials: "same-origin",
+        credentials: "include",
         ...options,
         headers: {
           ...(options.body ? { "Content-Type": "application/json" } : {}),
@@ -4615,6 +4604,10 @@ APP_HTML = """<!doctype html>
           .join(" ") || "Please check the form and try again.";
       }
       if (typeof detail === "string" && detail.trim()) return detail;
+      if (payload && typeof payload.error === "string" && payload.error.trim()) {
+        const detailText = typeof payload.detail === "string" && payload.detail.trim() ? ` ${payload.detail}` : "";
+        return `${payload.error}.${detailText}`.trim();
+      }
       if (payload && typeof payload.message === "string" && payload.message.trim()) return payload.message;
       return "Request failed. Please try again.";
     }
@@ -4651,24 +4644,20 @@ APP_HTML = """<!doctype html>
 
     function authConfigurationMessageFromRuntime(runtime) {
       if (!runtime) return "";
-      const configured = typeof runtime.auth_configured === "boolean"
-        ? runtime.auth_configured
-        : runtime.auth && typeof runtime.auth.configured === "boolean"
-          ? runtime.auth.configured
-          : true;
-      if (runtime.hosted && !configured) {
-        return runtime.auth_setup_warning
-          || (runtime.auth && runtime.auth.setup_warning)
-          || "Authentication is not configured. Set DATABASE_URL and SESSION_SECRET in Vercel.";
+      const configured = typeof runtime.auth_configured === "boolean" ? runtime.auth_configured : true;
+      if (runtime.production && !configured) {
+        const missing = Array.isArray(runtime.missing) && runtime.missing.length
+          ? ` Missing: ${runtime.missing.join(", ")}.`
+          : "";
+        return `${runtime.error || "Authentication is not configured"}. ${runtime.detail || "Set DATABASE_URL and SESSION_SECRET in Vercel Environment Variables."}${missing}`;
       }
-      return (runtime.auth && runtime.auth.setup_warning) || (runtime.persistence && runtime.persistence.warning) || "";
+      return runtime.detail || "";
     }
 
     async function loadAuthRuntimeNotice() {
       try {
-        const response = await fetch("/api/runtime", { credentials: "same-origin" });
+        const response = await fetch("/api/auth/debug", { credentials: "include" });
         const runtime = await response.json();
-        state.runtime = runtime;
         setAuthConfigNotice(authConfigurationMessageFromRuntime(runtime));
       } catch (_error) {
         setAuthConfigNotice("");
@@ -5220,8 +5209,8 @@ APP_HTML = """<!doctype html>
 
     async function loadRuntime() {
       const [runtimeResponse, corpusResponse] = await Promise.all([
-        fetch("/api/runtime"),
-        fetch("/api/corpus")
+        fetch("/api/runtime", { credentials: "include" }),
+        fetch("/api/corpus", { credentials: "include" })
       ]);
       state.runtime = await runtimeResponse.json();
       state.corpus = await corpusResponse.json();
@@ -6088,6 +6077,7 @@ def api_info() -> dict[str, Any]:
             "login": "/api/auth/login",
             "logout": "/api/auth/logout",
             "me": "/api/auth/me",
+            "debug": "/api/auth/debug",
         },
         "chat": "/api/chat",
         "chat_history": "/api/chat/history",
@@ -6118,23 +6108,23 @@ def health_check() -> dict[str, Any]:
 @app.get("/api/runtime")
 def runtime_info() -> dict[str, Any]:
     persistence = _account_store_status(check_reachable=True)
-    auth_configured = _durable_auth_configured()
-    database_reachable = persistence.get("reachable")
+    auth_debug = _auth_debug_status(check_reachable=True)
     return {
         "service": SERVICE_NAME,
         "version": SERVICE_VERSION,
         "python": platform.python_version(),
         "platform": platform.platform(),
         "hosted": bool(os.getenv("VERCEL")),
-        "auth_configured": auth_configured,
+        "auth_configured": auth_debug["auth_configured"],
         "auth_setup_warning": _auth_setup_warning(),
-        "database_configured": bool(os.getenv("DATABASE_URL")) or not _production_runtime(),
-        "database_reachable": bool(database_reachable) if database_reachable is not None else None,
+        "database_configured": auth_debug["database_url_present"] or not _production_runtime(),
+        "database_reachable": auth_debug["database_reachable"],
+        "auth_debug": auth_debug,
         "auth": {
             "cookie_name": AUTH_COOKIE_NAME,
-            "session_secret_configured": bool(os.getenv("SESSION_SECRET") or os.getenv("AUTH_SECRET")),
-            "configured": auth_configured,
-            "temporary_available": bool(_configured_database_url()),
+            "session_secret_configured": auth_debug["session_secret_present"],
+            "configured": auth_debug["auth_configured"],
+            "temporary_available": False,
             "setup_error": _auth_setup_error(),
             "setup_warning": _auth_setup_warning(),
         },
@@ -6173,6 +6163,11 @@ def source_view(path: str = Query(..., min_length=1)) -> dict[str, Any]:
     return {"path": path, "text": index.raw_sources[path], "chunks": chunks}
 
 
+@app.get("/api/auth/debug", response_model=AuthDebugResponse)
+def auth_debug() -> AuthDebugResponse:
+    return AuthDebugResponse(**_auth_debug_status(check_reachable=True))
+
+
 @app.post("/api/auth/signup", response_model=AuthResponse)
 def auth_signup(payload: AuthSignupRequest, response: Response) -> AuthResponse:
     LOGGER.info(
@@ -6183,7 +6178,7 @@ def auth_signup(payload: AuthSignupRequest, response: Response) -> AuthResponse:
     )
     setup_error = _auth_setup_error()
     if setup_error:
-        raise _auth_unavailable_exception(setup_error)
+        raise _auth_unavailable_exception()
     store = get_account_store(required=True)
     if store is None:
         raise _auth_unavailable_exception()
@@ -6214,7 +6209,7 @@ def auth_login(payload: AuthLoginRequest, response: Response) -> AuthResponse:
     )
     setup_error = _auth_setup_error()
     if setup_error:
-        raise _auth_unavailable_exception(setup_error)
+        raise _auth_unavailable_exception()
     store = get_account_store(required=True)
     if store is None:
         raise _auth_unavailable_exception()

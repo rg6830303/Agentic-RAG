@@ -50,6 +50,7 @@ class VercelApiTests(unittest.TestCase):
         self.assertIn(b"buildThreadMemory", root.body)
         self.assertIn(b"ensureActiveThread", root.body)
         self.assertIn(b"/api/auth/login", root.body)
+        self.assertIn(b"/api/auth/debug", str(app_module.api_info()).encode("utf-8"))
         self.assertIn(b"Response Details", root.body)
         self.assertIn(b"data-action=\"details\"", root.body)
         self.assertIn(b"authPasswordConfirm", root.body)
@@ -88,54 +89,60 @@ class VercelApiTests(unittest.TestCase):
         self.assertTrue(runtime["azure_openai"]["chat_configured"])
         self.assertNotIn("super-secret", str(runtime))
 
-    def test_production_missing_env_uses_temporary_auth_store(self) -> None:
+    def test_production_missing_env_blocks_auth_with_clear_setup_error(self) -> None:
         original_store = app_module.account_store
         original_error = app_module.ACCOUNT_STORE_ERROR
-        original_ephemeral_path = app_module.EPHEMERAL_APP_DB_PATH
         app_module.account_store = None
         app_module.ACCOUNT_STORE_ERROR = ""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            app_module.EPHEMERAL_APP_DB_PATH = Path(tmpdir) / "auth.db"
-            try:
-                with patch.dict(os.environ, {"VERCEL": "1"}, clear=True):
-                    client = TestClient(root_app, base_url="https://testserver")
-                    self.assertEqual(client.get("/").status_code, 200)
-                    self.assertEqual(client.get("/api/health").status_code, 200)
+        try:
+            with patch.dict(os.environ, {"VERCEL": "1"}, clear=True):
+                client = TestClient(root_app, base_url="https://testserver")
+                self.assertEqual(client.get("/").status_code, 200)
+                health = client.get("/api/health")
+                self.assertEqual(health.status_code, 200)
+                self.assertFalse(health.json()["auth_configured"])
 
-                    runtime = client.get("/api/runtime")
-                    self.assertEqual(runtime.status_code, 200)
-                    self.assertFalse(runtime.json()["auth_configured"])
-                    self.assertFalse(runtime.json()["database_configured"])
-                    self.assertTrue(runtime.json()["database_reachable"])
-                    self.assertIn("Authentication is not configured", runtime.json()["auth_setup_warning"])
-                    self.assertFalse(runtime.json()["persistence"]["database_url_configured"])
-                    self.assertTrue(runtime.json()["persistence"]["ephemeral"])
-                    self.assertIn("temporary", runtime.json()["persistence"]["warning"])
+                runtime = client.get("/api/runtime")
+                self.assertEqual(runtime.status_code, 200)
+                self.assertFalse(runtime.json()["auth_configured"])
+                self.assertFalse(runtime.json()["database_configured"])
+                self.assertFalse(runtime.json()["database_reachable"])
+                self.assertIn("Authentication is not configured", runtime.json()["auth_setup_warning"])
+                self.assertFalse(runtime.json()["persistence"]["database_url_configured"])
+                self.assertFalse(runtime.json()["persistence"]["ephemeral"])
 
-                    signup = client.post(
-                        "/api/auth/signup",
-                        json={
-                            "email": "temp-auth@example.com",
-                            "password": "correct horse battery staple",
-                            "name": "Temp Auth",
-                        },
-                    )
-                    self.assertEqual(signup.status_code, 200)
-                    self.assertTrue(signup.json()["authenticated"])
-                    self.assertEqual(signup.json()["user"]["display_name"], "Temp Auth")
+                debug = client.get("/api/auth/debug")
+                self.assertEqual(debug.status_code, 200)
+                self.assertFalse(debug.json()["auth_configured"])
+                self.assertFalse(debug.json()["database_url_present"])
+                self.assertFalse(debug.json()["session_secret_present"])
+                self.assertFalse(debug.json()["database_reachable"])
+                self.assertEqual(debug.json()["cookie_name"], app_module.AUTH_COOKIE_NAME)
+                self.assertTrue(debug.json()["production"])
 
-                    me = client.get("/api/auth/me")
-                    self.assertEqual(me.status_code, 200)
-                    self.assertTrue(me.json()["authenticated"])
+                signup = client.post(
+                    "/api/auth/signup",
+                    json={
+                        "email": "temp-auth@example.com",
+                        "password": "correct horse battery staple",
+                        "display_name": "Temp Auth",
+                    },
+                )
+                self.assertEqual(signup.status_code, 503)
+                self.assertEqual(signup.json()["error"], "Authentication is not configured")
+                self.assertIn("Set DATABASE_URL and SESSION_SECRET", signup.json()["detail"])
 
-                    created = client.post("/api/chats", json={"session_name": "Temporary thread"})
-                    self.assertEqual(created.status_code, 200)
-            finally:
-                app_module.account_store = original_store
-                app_module.ACCOUNT_STORE_ERROR = original_error
-                app_module.EPHEMERAL_APP_DB_PATH = original_ephemeral_path
+                login = client.post(
+                    "/api/auth/login",
+                    json={"email": "temp-auth@example.com", "password": "correct horse battery staple"},
+                )
+                self.assertEqual(login.status_code, 503)
+                self.assertEqual(login.json()["error"], "Authentication is not configured")
+        finally:
+            app_module.account_store = original_store
+            app_module.ACCOUNT_STORE_ERROR = original_error
 
-    def test_database_backed_fallback_session_secret_survives_restart(self) -> None:
+    def test_production_configured_auth_survives_restart_with_env_secret(self) -> None:
         original_store = app_module.account_store
         original_error = app_module.ACCOUNT_STORE_ERROR
         original_dev_secret = app_module.DEV_AUTH_SECRET
@@ -144,29 +151,35 @@ class VercelApiTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             db_url = f"sqlite:///{Path(tmpdir) / 'auth.db'}"
             try:
-                with patch.dict(os.environ, {"VERCEL": "1", "DATABASE_URL": db_url}, clear=True):
+                with patch.dict(
+                    os.environ,
+                    {"VERCEL": "1", "DATABASE_URL": db_url, "SESSION_SECRET": "stable-test-secret"},
+                    clear=True,
+                ):
                     client = TestClient(root_app, base_url="https://testserver")
+                    debug = client.get("/api/auth/debug")
+                    self.assertEqual(debug.status_code, 200)
+                    self.assertTrue(debug.json()["auth_configured"])
+                    self.assertTrue(debug.json()["database_url_present"])
+                    self.assertTrue(debug.json()["session_secret_present"])
+                    self.assertTrue(debug.json()["database_reachable"])
+
                     signup = client.post(
                         "/api/auth/signup",
                         json={
                             "email": "stable-secret@example.com",
                             "password": "correct horse battery staple",
-                            "display_name": "Stable Secret",
+                            "name": "Stable Secret",
                         },
                     )
                     self.assertEqual(signup.status_code, 200)
-                    first_secret = app_module.account_store.get_or_create_auth_secret()  # type: ignore[union-attr]
-                    self.assertTrue(first_secret)
+                    self.assertEqual(signup.json()["user"]["display_name"], "Stable Secret")
 
                     app_module.account_store = None
                     app_module.DEV_AUTH_SECRET = "different-dev-secret-after-restart"
                     me = client.get("/api/auth/me")
                     self.assertEqual(me.status_code, 200)
                     self.assertTrue(me.json()["authenticated"])
-                    self.assertEqual(
-                        app_module.get_account_store(required=True).get_or_create_auth_secret(),  # type: ignore[union-attr]
-                        first_secret,
-                    )
             finally:
                 app_module.account_store = original_store
                 app_module.ACCOUNT_STORE_ERROR = original_error
@@ -178,7 +191,11 @@ class VercelApiTests(unittest.TestCase):
         app_module.account_store = None
         app_module.ACCOUNT_STORE_ERROR = "Database unavailable"
         try:
-            with patch.dict(os.environ, {"VERCEL": "1"}, clear=True), patch.object(
+            with patch.dict(
+                os.environ,
+                {"VERCEL": "1", "DATABASE_URL": "sqlite:///:memory:", "SESSION_SECRET": "stable-test-secret"},
+                clear=True,
+            ), patch.object(
                 app_module,
                 "AccountStore",
                 side_effect=RuntimeError("boom"),
