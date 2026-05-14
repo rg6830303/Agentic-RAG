@@ -307,6 +307,7 @@ class AuthSignupRequest(BaseModel):
     email: str = Field(..., min_length=3, max_length=254)
     password: str = Field(..., min_length=8, max_length=256)
     display_name: str | None = Field(default=None, max_length=120)
+    name: str | None = Field(default=None, max_length=120)
 
 
 class AuthLoginRequest(BaseModel):
@@ -366,6 +367,10 @@ def _session_name_from_prompt(prompt: str) -> str:
 
 def _normalize_email(email: str) -> str:
     return email.strip().lower()
+
+
+def _email_log_tag(email: str) -> str:
+    return hashlib.sha256(_normalize_email(email).encode("utf-8")).hexdigest()[:12]
 
 
 def _b64_urlsafe(data: bytes) -> str:
@@ -446,6 +451,12 @@ def _configured_database_url() -> str | None:
     return f"sqlite:///{APP_DB_PATH}"
 
 
+def _durable_auth_configured() -> bool:
+    if not _production_runtime():
+        return True
+    return bool(os.getenv("DATABASE_URL") and (os.getenv("SESSION_SECRET") or os.getenv("AUTH_SECRET")))
+
+
 def _auth_setup_error() -> str:
     return ""
 
@@ -457,13 +468,16 @@ def _auth_setup_warning() -> str:
     has_database_url = bool(os.getenv("DATABASE_URL"))
     has_env_secret = bool(os.getenv("SESSION_SECRET") or os.getenv("AUTH_SECRET"))
     if not has_database_url:
+        warnings.append("Authentication is not configured. Set DATABASE_URL and SESSION_SECRET in Vercel.")
         warnings.append("DATABASE_URL is not set, so accounts and chats use temporary server storage.")
     if not has_env_secret:
         if has_database_url:
+            warnings.append("Authentication is not configured. Set DATABASE_URL and SESSION_SECRET in Vercel.")
             warnings.append("SESSION_SECRET is not set, so the database will keep a generated session signing key.")
         else:
             warnings.append("SESSION_SECRET is not set, so sessions may reset with temporary server storage.")
-    return " ".join(warnings)
+    deduped = list(dict.fromkeys(warnings))
+    return " ".join(deduped)
 
 
 def _auth_unavailable_exception(detail: str | None = None) -> HTTPException:
@@ -519,6 +533,7 @@ def _set_auth_cookie(response: Response, user: dict[str, Any]) -> None:
         samesite="lax",
         path="/",
     )
+    LOGGER.info("Auth session cookie set user_id=%s secure=%s", user.get("id"), _secure_auth_cookie())
 
 
 def _clear_auth_cookie(response: Response) -> None:
@@ -1915,6 +1930,7 @@ def _account_store_status(check_reachable: bool = False) -> dict[str, Any]:
         ),
         "database_url_configured": bool(os.getenv("DATABASE_URL")),
         "database_configured": bool(database_url),
+        "durable_database_configured": bool(os.getenv("DATABASE_URL")) or not _production_runtime(),
         "production_runtime": _production_runtime(),
         "durable": bool(os.getenv("DATABASE_URL")) or not _production_runtime(),
         "ephemeral": uses_ephemeral_sqlite,
@@ -3096,6 +3112,16 @@ APP_HTML = """<!doctype html>
     .auth-error { min-height: 20px; color: var(--rose); font-size: 13px; }
     .auth-error.success { color: var(--green); }
     .auth-error.warn { color: var(--amber); }
+    .auth-config {
+      border: 1px solid rgba(251, 191, 36, 0.38);
+      border-radius: 8px;
+      background: rgba(251, 191, 36, 0.08);
+      color: var(--amber);
+      font-size: 13px;
+      line-height: 1.45;
+      padding: 10px 12px;
+    }
+    .auth-config[hidden] { display: none; }
     .auth-switch {
       margin-top: -4px;
       color: var(--muted);
@@ -4270,6 +4296,7 @@ APP_HTML = """<!doctype html>
           <input id="authPasswordConfirm" type="password" autocomplete="new-password" placeholder="Repeat password">
         </label>
         <button class="primary" id="authSubmit" type="submit">Login</button>
+        <p class="auth-config" id="authConfigNotice" hidden></p>
         <p class="auth-error" id="authError" aria-live="polite"></p>
         <p class="auth-switch" id="authSwitchText">
           <span id="authSwitchLead">New here?</span>
@@ -4544,6 +4571,7 @@ APP_HTML = """<!doctype html>
       authMode: "login",
       authLoading: false,
       authNotice: "",
+      authConfigWarning: "",
       detailsTurn: null
     };
     const LOCAL_CHAT_KEY = "agentic_rag_chats_v1";
@@ -4612,6 +4640,39 @@ APP_HTML = """<!doctype html>
       target.textContent = message || "";
       target.classList.toggle("success", kind === "success");
       target.classList.toggle("warn", kind === "warn");
+    }
+
+    function setAuthConfigNotice(message = "") {
+      state.authConfigWarning = message || "";
+      const target = $("#authConfigNotice");
+      target.textContent = state.authConfigWarning;
+      target.hidden = !state.authConfigWarning;
+    }
+
+    function authConfigurationMessageFromRuntime(runtime) {
+      if (!runtime) return "";
+      const configured = typeof runtime.auth_configured === "boolean"
+        ? runtime.auth_configured
+        : runtime.auth && typeof runtime.auth.configured === "boolean"
+          ? runtime.auth.configured
+          : true;
+      if (runtime.hosted && !configured) {
+        return runtime.auth_setup_warning
+          || (runtime.auth && runtime.auth.setup_warning)
+          || "Authentication is not configured. Set DATABASE_URL and SESSION_SECRET in Vercel.";
+      }
+      return (runtime.auth && runtime.auth.setup_warning) || (runtime.persistence && runtime.persistence.warning) || "";
+    }
+
+    async function loadAuthRuntimeNotice() {
+      try {
+        const response = await fetch("/api/runtime", { credentials: "same-origin" });
+        const runtime = await response.json();
+        state.runtime = runtime;
+        setAuthConfigNotice(authConfigurationMessageFromRuntime(runtime));
+      } catch (_error) {
+        setAuthConfigNotice("");
+      }
     }
 
     function isValidEmail(value) {
@@ -5800,6 +5861,7 @@ APP_HTML = """<!doctype html>
     }
 
     async function bootstrapAuth() {
+      await loadAuthRuntimeNotice();
       const payload = await apiFetch("/api/auth/me");
       if (!payload.authenticated || !payload.user) {
         showAuthGate(payload.message || "");
@@ -6046,7 +6108,7 @@ def health_check() -> dict[str, Any]:
         "version": SERVICE_VERSION,
         "source_count": corpus["source_count"],
         "chunk_count": corpus["chunk_count"],
-        "auth_configured": not bool(_auth_setup_error()),
+        "auth_configured": _durable_auth_configured(),
         "auth_degraded": bool(_auth_setup_warning()),
         "database_configured": bool(_configured_database_url()),
         "database_url_configured": bool(os.getenv("DATABASE_URL")),
@@ -6056,16 +6118,23 @@ def health_check() -> dict[str, Any]:
 @app.get("/api/runtime")
 def runtime_info() -> dict[str, Any]:
     persistence = _account_store_status(check_reachable=True)
+    auth_configured = _durable_auth_configured()
+    database_reachable = persistence.get("reachable")
     return {
         "service": SERVICE_NAME,
         "version": SERVICE_VERSION,
         "python": platform.python_version(),
         "platform": platform.platform(),
         "hosted": bool(os.getenv("VERCEL")),
+        "auth_configured": auth_configured,
+        "auth_setup_warning": _auth_setup_warning(),
+        "database_configured": bool(os.getenv("DATABASE_URL")) or not _production_runtime(),
+        "database_reachable": bool(database_reachable) if database_reachable is not None else None,
         "auth": {
             "cookie_name": AUTH_COOKIE_NAME,
             "session_secret_configured": bool(os.getenv("SESSION_SECRET") or os.getenv("AUTH_SECRET")),
-            "configured": not bool(_auth_setup_error()),
+            "configured": auth_configured,
+            "temporary_available": bool(_configured_database_url()),
             "setup_error": _auth_setup_error(),
             "setup_warning": _auth_setup_warning(),
         },
@@ -6106,6 +6175,12 @@ def source_view(path: str = Query(..., min_length=1)) -> dict[str, Any]:
 
 @app.post("/api/auth/signup", response_model=AuthResponse)
 def auth_signup(payload: AuthSignupRequest, response: Response) -> AuthResponse:
+    LOGGER.info(
+        "Auth signup request received email_hash=%s database_url_configured=%s auth_configured=%s",
+        _email_log_tag(payload.email),
+        bool(os.getenv("DATABASE_URL")),
+        _durable_auth_configured(),
+    )
     setup_error = _auth_setup_error()
     if setup_error:
         raise _auth_unavailable_exception(setup_error)
@@ -6116,10 +6191,11 @@ def auth_signup(payload: AuthSignupRequest, response: Response) -> AuthResponse:
         user = store.create_user(
             email=payload.email,
             password=payload.password,
-            display_name=payload.display_name,
+            display_name=payload.display_name or payload.name,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    LOGGER.info("Auth user created user_id=%s email_hash=%s", user.get("id"), _email_log_tag(payload.email))
     _set_auth_cookie(response, user)
     return AuthResponse(
         authenticated=True,
@@ -6130,6 +6206,12 @@ def auth_signup(payload: AuthSignupRequest, response: Response) -> AuthResponse:
 
 @app.post("/api/auth/login", response_model=AuthResponse)
 def auth_login(payload: AuthLoginRequest, response: Response) -> AuthResponse:
+    LOGGER.info(
+        "Auth login request received email_hash=%s database_url_configured=%s auth_configured=%s",
+        _email_log_tag(payload.email),
+        bool(os.getenv("DATABASE_URL")),
+        _durable_auth_configured(),
+    )
     setup_error = _auth_setup_error()
     if setup_error:
         raise _auth_unavailable_exception(setup_error)
@@ -6138,7 +6220,9 @@ def auth_login(payload: AuthLoginRequest, response: Response) -> AuthResponse:
         raise _auth_unavailable_exception()
     user = store.verify_user(payload.email, payload.password)
     if not user:
+        LOGGER.info("Auth login failed email_hash=%s", _email_log_tag(payload.email))
         raise HTTPException(status_code=401, detail="Email or password is incorrect.")
+    LOGGER.info("Auth login success user_id=%s email_hash=%s", user.get("id"), _email_log_tag(payload.email))
     _set_auth_cookie(response, user)
     return AuthResponse(
         authenticated=True,
@@ -6150,6 +6234,7 @@ def auth_login(payload: AuthLoginRequest, response: Response) -> AuthResponse:
 @app.post("/api/auth/logout", response_model=AuthResponse)
 def auth_logout(response: Response) -> AuthResponse:
     _clear_auth_cookie(response)
+    LOGGER.info("Auth logout completed")
     return AuthResponse(authenticated=False, user=None, message="Signed out.")
 
 

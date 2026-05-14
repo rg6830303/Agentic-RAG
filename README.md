@@ -80,7 +80,7 @@ Authenticated chat sessions are saved automatically after each answer. Each sess
 
 The UI loads only the signed-in user's sessions in the left sidebar and can resume or clone an older chat. Opening an old thread restores the full transcript and follow-up prompts append to that same thread. Thread memory is built from the agenda, compact older-summary, and recent turns, and is sent only for that active thread so separate chats and separate users do not mix context.
 
-For authenticated users, the backend SQL store is the source of truth. If `DATABASE_URL` points to Postgres, the app uses it for accounts, threads, and messages. Without `DATABASE_URL`, local development falls back to SQLite at `data/agentic_rag_app.sqlite3`. On Vercel without `DATABASE_URL`, the app can run signup/login against temporary `/tmp` SQLite storage so the UI remains usable, but those accounts and chats are not durable and may reset after cold starts. Legacy unauthenticated `/api/chat` calls still use the older file-based history under `data/chat_history/` for backwards compatibility.
+For authenticated users, the backend SQL store is the source of truth. If `DATABASE_URL` points to Postgres, the app uses it for accounts, threads, and messages. Without `DATABASE_URL`, local development falls back to SQLite at `data/agentic_rag_app.sqlite3`. On Vercel without `DATABASE_URL`, the app can run signup/login against temporary `/tmp` SQLite storage so the UI remains usable, but the auth screen and `/api/runtime` clearly warn that durable authentication is not configured. Those temporary accounts and chats are not durable and may reset after cold starts. Legacy unauthenticated `/api/chat` calls still use the older file-based history under `data/chat_history/` for backwards compatibility.
 
 On Vercel, the app does not initialize the account database during import. If the configured database is unreachable, `/` still loads and `/api/health` plus `/api/runtime` still return diagnostic JSON. Authenticated chat endpoints return a friendly setup error instead of crashing the Serverless Function.
 
@@ -95,15 +95,43 @@ Recommended production variables:
 
 The app keeps optional Azure OpenAI variables unchanged. Wikipedia retrieval needs no API key.
 
-Durable production account/chat storage requires `DATABASE_URL`. `SESSION_SECRET` is still recommended so you control session rotation explicitly; if it is missing while a database is configured, the backend stores a generated signing key in the account database so cookies keep working across serverless restarts. If both `DATABASE_URL` and `SESSION_SECRET` are absent on Vercel, the public shell still renders and signup/login remain usable in temporary mode, with a visible warning in `/api/runtime` and on the auth screen. Set both variables before relying on accounts for real users.
+Durable production account/chat storage requires both `DATABASE_URL` and `SESSION_SECRET` or `AUTH_SECRET`. If `SESSION_SECRET` is missing while a database is configured, the backend stores a generated signing key in the account database so cookies keep working across serverless restarts, but Vercel should still be configured with an explicit secret before real users rely on the app. If either required value is absent on Vercel, the public shell still renders and signup/login remain usable in temporary or degraded mode, with this visible warning in `/api/runtime` and on the auth screen: `Authentication is not configured. Set DATABASE_URL and SESSION_SECRET in Vercel.`
+
+### Vercel Auth Env Setup
+
+Add these in Vercel Project Settings -> Environment Variables for Production, Preview, and Development as needed:
+
+- `DATABASE_URL`: durable Postgres connection string.
+- `SESSION_SECRET`: long random string, for example a 32+ byte random value.
+- `AUTH_SECRET`: optional alternative name if you prefer it over `SESSION_SECRET`.
+
+After adding or changing those variables, redeploy the project. `/api/runtime` should show `auth_configured: true`, `database_configured: true`, and `database_reachable: true`.
 
 ## Auth Troubleshooting
 
 - If the Signup button is disabled, check that the email is valid, the password is at least 8 characters, and the confirmation password matches.
-- If signup/login returns a setup error, open `/api/runtime` and check `auth.setup_warning`, `persistence.error`, and `persistence.reachable`.
+- If only the login page appears, use the visible `Sign up` tab or `Create an account` link; both switch the same form into signup mode.
+- If signup/login returns a setup error, open `/api/runtime` and check `auth_configured`, `database_configured`, `database_reachable`, `auth.setup_warning`, `persistence.error`, and `persistence.reachable`.
+- If the auth screen says `Authentication is not configured. Set DATABASE_URL and SESSION_SECRET in Vercel.`, add those Vercel env vars and redeploy.
 - If `DATABASE_URL` is missing on Vercel, accounts are temporary and may disappear after a cold start.
-- If `SESSION_SECRET` is missing on Vercel but `DATABASE_URL` is configured, the app uses a database-backed generated signing key. Add `SESSION_SECRET` when you want to rotate or pin that key yourself.
+- If `SESSION_SECRET` is missing on Vercel but `DATABASE_URL` is configured, the app uses a database-backed generated signing key. Add `SESSION_SECRET` or `AUTH_SECRET` when you want to rotate or pin that key yourself.
 - If the database is configured but unreachable, auth endpoints return JSON errors instead of raw stack traces.
+
+### Signup/Login Smoke Tests
+
+```cmd
+curl -i -c cookies.txt -b cookies.txt -X POST http://127.0.0.1:8000/api/auth/signup ^
+  -H "Content-Type: application/json" ^
+  -d "{\"email\":\"test@example.com\",\"password\":\"TestPassword123\",\"name\":\"Test User\"}"
+
+curl -i -c cookies.txt -b cookies.txt http://127.0.0.1:8000/api/auth/me
+
+curl -i -c cookies.txt -b cookies.txt -X POST http://127.0.0.1:8000/api/auth/logout
+
+curl -i -c cookies.txt -b cookies.txt -X POST http://127.0.0.1:8000/api/auth/login ^
+  -H "Content-Type: application/json" ^
+  -d "{\"email\":\"test@example.com\",\"password\":\"TestPassword123\"}"
+```
 
 ## Wikipedia Text Retrieval
 

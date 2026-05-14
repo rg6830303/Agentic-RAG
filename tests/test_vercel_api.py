@@ -56,6 +56,7 @@ class VercelApiTests(unittest.TestCase):
         self.assertIn(b"validateAuthForm", root.body)
         self.assertIn(b"authModeSwitch", root.body)
         self.assertIn(b"verifyAuthenticatedSession", root.body)
+        self.assertIn(b"authConfigNotice", root.body)
         self.assertIn(b"Create an account", root.body)
         self.assertEqual(health_check()["status"], "ok")
 
@@ -103,6 +104,10 @@ class VercelApiTests(unittest.TestCase):
 
                     runtime = client.get("/api/runtime")
                     self.assertEqual(runtime.status_code, 200)
+                    self.assertFalse(runtime.json()["auth_configured"])
+                    self.assertFalse(runtime.json()["database_configured"])
+                    self.assertTrue(runtime.json()["database_reachable"])
+                    self.assertIn("Authentication is not configured", runtime.json()["auth_setup_warning"])
                     self.assertFalse(runtime.json()["persistence"]["database_url_configured"])
                     self.assertTrue(runtime.json()["persistence"]["ephemeral"])
                     self.assertIn("temporary", runtime.json()["persistence"]["warning"])
@@ -112,11 +117,12 @@ class VercelApiTests(unittest.TestCase):
                         json={
                             "email": "temp-auth@example.com",
                             "password": "correct horse battery staple",
-                            "display_name": "Temp Auth",
+                            "name": "Temp Auth",
                         },
                     )
                     self.assertEqual(signup.status_code, 200)
                     self.assertTrue(signup.json()["authenticated"])
+                    self.assertEqual(signup.json()["user"]["display_name"], "Temp Auth")
 
                     me = client.get("/api/auth/me")
                     self.assertEqual(me.status_code, 200)
