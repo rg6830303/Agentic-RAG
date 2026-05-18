@@ -3768,29 +3768,36 @@ APP_HTML = """<!doctype html>
     .conversation-head {
       display: flex;
       justify-content: space-between;
-      gap: 14px;
-      align-items: start;
-      border-bottom: 1px solid var(--line-soft);
-      padding-bottom: 12px;
+      gap: 12px;
+      align-items: center;
+      border-bottom: 1px solid rgba(209, 31, 44, 0.18);
+      padding-bottom: 8px;
+      flex-shrink: 0;
     }
     .eyebrow {
-      color: var(--cyan);
-      font-size: 11px;
+      color: var(--crimson-soft);
+      font-size: 10px;
       font-weight: 900;
       text-transform: uppercase;
-      letter-spacing: 0;
+      letter-spacing: 0.5px;
     }
     .conversation-head h2 {
-      margin-top: 4px;
-      font-size: 22px;
-      line-height: 1.2;
+      margin-top: 2px;
+      font-size: 17px;
+      line-height: 1.25;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      display: -webkit-box;
+      -webkit-line-clamp: 1;
+      -webkit-box-orient: vertical;
     }
     .system-strip {
       display: flex;
-      gap: 10px;
+      gap: 6px;
       flex-wrap: wrap;
-      margin-top: 10px;
+      margin-top: 6px;
     }
+    .system-strip .badge { font-size: 10.5px; padding: 3px 8px; }
     .message-list {
       display: grid;
       gap: 12px;
@@ -3927,24 +3934,30 @@ APP_HTML = """<!doctype html>
     }
     .composer {
       display: grid;
-      gap: 10px;
-      border: 1px solid var(--line-soft);
-      border-top: 1px solid rgba(56, 189, 248, 0.52);
-      border-radius: 10px;
-      padding: 12px;
-      background: linear-gradient(180deg, rgba(8, 23, 42, 0.78), rgba(5, 15, 31, 0.72));
-      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+      gap: 8px;
+      border: 1px solid rgba(255, 255, 255, 0.04);
+      border-top: 1px solid rgba(209, 31, 44, 0.28);
+      border-radius: 12px;
+      padding: 10px 12px;
+      background: linear-gradient(180deg, rgba(15, 21, 48, 0.7), rgba(6, 7, 13, 0.85));
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+      max-height: 42dvh;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      flex-shrink: 0;
     }
     .composer.loading {
-      border-color: rgba(45, 212, 191, 0.55);
-      box-shadow: 0 0 0 3px rgba(45, 212, 191, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+      border-color: rgba(209, 31, 44, 0.55);
+      box-shadow: 0 0 0 3px rgba(209, 31, 44, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.04);
     }
+    .composer > label:has(textarea) { gap: 4px; }
     .composer textarea {
-      min-height: 82px;
-      max-height: 26dvh;
+      min-height: 56px;
+      max-height: 20dvh;
       resize: vertical;
       border-radius: 10px;
-      font-size: 15px;
+      font-size: 14.5px;
+      padding: 10px 12px;
     }
     .composer textarea::placeholder { color: #7896b5; }
     .composer-options {
@@ -3956,15 +3969,16 @@ APP_HTML = """<!doctype html>
       list-style: none;
       cursor: pointer;
       color: var(--soft);
-      font-weight: 900;
-      min-height: 36px;
+      font-weight: 800;
+      font-size: 12.5px;
+      min-height: 30px;
       align-items: center;
       justify-content: space-between;
       gap: 10px;
-      padding: 8px 10px;
-      border: 1px solid var(--line-soft);
+      padding: 6px 10px;
+      border: 1px solid rgba(209, 31, 44, 0.18);
       border-radius: 8px;
-      background: rgba(9, 26, 49, 0.82);
+      background: rgba(6, 7, 13, 0.55);
     }
     .composer-options > summary::-webkit-details-marker { display: none; }
     .composer-options > summary:after {
@@ -4550,13 +4564,14 @@ APP_HTML = """<!doctype html>
       .flow { grid-template-columns: minmax(0, 1fr); }
       .node:after { display: none; }
       .composer {
-        gap: 10px;
-        padding: 12px;
-        border-radius: 16px;
+        gap: 8px;
+        padding: 10px;
+        border-radius: 14px;
+        max-height: 46dvh;
       }
       .composer textarea {
-        min-height: 82px;
-        max-height: 32vh;
+        min-height: 56px;
+        max-height: 22dvh;
         font-size: 16px;
       }
       .composer-options > summary { display: flex; }
@@ -4745,10 +4760,10 @@ APP_HTML = """<!doctype html>
         min-height: 44px;
       }
       .composer {
-        padding: 10px;
-        gap: 9px;
+        padding: 8px;
+        gap: 7px;
       }
-      .composer textarea { min-height: 76px; }
+      .composer textarea { min-height: 52px; }
       .composer-status { display: none; }
       .actions { grid-template-columns: 1fr; }
       .actions .secondary { display: none; }
