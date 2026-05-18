@@ -1,0 +1,68 @@
+{
+  "countries": [
+    {
+      "name": "United States of America",
+      "capital": "Washington, D.C.",
+      "continent": "North America",
+      "population_millions": 334,
+      "primary_languages": ["English"],
+      "currency": "United States dollar (USD)",
+      "government": "Federal presidential constitutional republic"
+    },
+    {
+      "name": "India",
+      "capital": "New Delhi",
+      "continent": "Asia",
+      "population_millions": 1428,
+      "primary_languages": ["Hindi", "English"],
+      "currency": "Indian rupee (INR)",
+      "government": "Federal parliamentary constitutional republic",
+      "note": "Most populous country since 2023, surpassing China."
+    },
+    {
+      "name": "China",
+      "capital": "Beijing",
+      "continent": "Asia",
+      "population_millions": 1411,
+      "primary_languages": ["Mandarin Chinese"],
+      "currency": "Renminbi (CNY)",
+      "government": "Unitary one-party socialist republic"
+    },
+    {
+      "name": "United Kingdom",
+      "capital": "London",
+      "continent": "Europe",
+      "population_millions": 67,
+      "primary_languages": ["English"],
+      "currency": "Pound sterling (GBP)",
+      "government": "Unitary parliamentary constitutional monarchy"
+    },
+    {
+      "name": "Japan",
+      "capital": "Tokyo",
+      "continent": "Asia",
+      "population_millions": 124,
+      "primary_languages": ["Japanese"],
+      "currency": "Japanese yen (JPY)",
+      "government": "Unitary parliamentary constitutional monarchy"
+    },
+    {
+      "name": "Germany",
+      "capital": "Berlin",
+      "continent": "Europe",
+      "population_millions": 84,
+      "primary_languages": ["German"],
+      "currency": "Euro (EUR)",
+      "government": "Federal parliamentary republic"
+    },
+    {
+      "name": "Brazil",
+      "capital": "Brasília",
+      "continent": "South America",
+      "population_millions": 216,
+      "primary_languages": ["Portuguese"],
+      "currency": "Brazilian real (BRL)",
+      "government": "Federal presidential constitutional republic"
+    }
+  ]
+}

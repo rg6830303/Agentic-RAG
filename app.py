@@ -716,32 +716,58 @@ def _suggest_next_prompts(
     response: ChatResponse,
     agenda_summary: str,
 ) -> list[str]:
-    suggestions: list[str] = []
-    citation_files = [citation.file_name for citation in response.citations[:3]]
-    top_source = citation_files[0] if citation_files else ""
-    agenda_focus = agenda_summary.replace("Focus:", "").split(". Key topics:", 1)[0].strip(" .")
+    """Generate forward-looking follow-up questions tailored to the user's agenda.
 
-    if agenda_focus:
-        suggestions.append(f"How does this answer move my agenda forward: {agenda_focus}?")
-    if top_source:
-        suggestions.append(f"Which details from {top_source} are most important here?")
-    if len(citation_files) > 1:
-        suggestions.append(f"Compare the evidence from {citation_files[0]} and {citation_files[1]}.")
+    Builds topic-aware suggestions from the question, answer, retrieved keywords,
+    and the cited Wikipedia entities, prioritized to advance the thread agenda.
+    """
+    suggestions: list[str] = []
+    citation_titles: list[str] = []
+    wiki_titles: list[str] = []
+    for citation in response.citations[:5]:
+        if (citation.source_type or "").lower() == "wikipedia" and citation.page_title:
+            wiki_titles.append(citation.page_title)
+        elif citation.file_name:
+            citation_titles.append(citation.file_name)
+
+    agenda_focus = agenda_summary.replace("Focus:", "").split(". Key topics:", 1)[0].strip(" .")
+    answer_text = (response.finalized_answer or response.answer or "").strip()
+    answer_keywords = _agenda_keywords(answer_text, limit=6) if answer_text else []
+    question_keywords = _agenda_keywords(question, limit=4)
+    primary_topic = (
+        wiki_titles[0]
+        if wiki_titles
+        else (question_keywords[0] if question_keywords else "")
+    )
+    secondary_topic = (
+        wiki_titles[1] if len(wiki_titles) > 1
+        else (answer_keywords[0] if answer_keywords and answer_keywords[0].lower() != primary_topic.lower() else "")
+    )
+
+    if primary_topic:
+        suggestions.append(f"What are the most important recent developments around {primary_topic}?")
+    if primary_topic and secondary_topic:
+        suggestions.append(f"How does {primary_topic} connect to {secondary_topic}?")
+    if primary_topic:
+        suggestions.append(f"Who are the key people or organizations behind {primary_topic}?")
+    if agenda_focus and primary_topic:
+        suggestions.append(f"Given my focus on {agenda_focus}, how should I think about {primary_topic} next?")
+    elif agenda_focus:
+        suggestions.append(f"What's the next concrete step to advance: {agenda_focus}?")
+    if wiki_titles:
+        suggestions.append(f"Summarize the Wikipedia entry on {wiki_titles[0]} in three bullets.")
+    if citation_titles:
+        suggestions.append(f"Which specific points in {citation_titles[0]} matter most for my question?")
     if response.needs_review:
-        suggestions.append("What extra context would improve confidence in this answer?")
-    elif response.retrieved_chunks:
-        keywords = _agenda_keywords(
-            f"{question} {response.retrieved_chunks[0].text}",
-            limit=4,
-        )
-        if len(keywords) >= 2:
-            suggestions.append(f"Explain the connection between {keywords[0]} and {keywords[1]}.")
-    suggestions.append("What should I verify next from the retrieved sources?")
+        suggestions.append("What additional context or sources would strengthen this answer?")
+    if primary_topic:
+        suggestions.append(f"Give me one practical example involving {primary_topic}.")
+    suggestions.append("Ask a deeper follow-up about this topic.")
 
     unique: list[str] = []
     seen: set[str] = set()
     for suggestion in suggestions:
-        clean = _compact_text(suggestion, 130)
+        clean = _compact_text(suggestion, 140)
         key = clean.lower()
         if clean and key not in seen:
             unique.append(clean)
@@ -2382,15 +2408,18 @@ def _wikipedia_request(params: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def search_wikipedia(query: str, limit: int = 3) -> list[dict[str, Any]]:
-    terms = _tokenize(query)
-    if len(terms) < 2:
+    cleaned = re.sub(r"\s+", " ", query).strip()
+    if not cleaned:
+        return []
+    terms = _tokenize(cleaned)
+    if not terms:
         return []
     payload = _wikipedia_request(
         {
             "action": "query",
             "list": "search",
-            "srsearch": query[:500],
-            "srlimit": max(1, min(limit, 5)),
+            "srsearch": cleaned[:400],
+            "srlimit": max(1, min(limit, 6)),
             "srprop": "snippet|titlesnippet|size",
         }
     )
@@ -2447,6 +2476,7 @@ def build_wikipedia_context(query: str, limit: int = 3) -> list[tuple[CorpusChun
 
     hits: list[tuple[CorpusChunk, float, str]] = []
     seen_titles: set[str] = set()
+    max_chunks_per_page = 4
     for result_rank, result in enumerate(search_wikipedia(query, limit=limit), start=1):
         title = str(result.get("title") or "").strip()
         if not title or title.lower() in seen_titles:
@@ -2456,7 +2486,7 @@ def build_wikipedia_context(query: str, limit: int = 3) -> list[tuple[CorpusChun
         if not page:
             continue
         extract = page["extract"]
-        for ordinal, chunk_text in enumerate(_split_text(extract, max_chars=1100, overlap=150)[:2]):
+        for ordinal, chunk_text in enumerate(_split_text(extract, max_chars=1100, overlap=150)[:max_chunks_per_page]):
             chunk = CorpusChunk(
                 chunk_id=f"wikipedia:{page['page_id']}:{ordinal}",
                 file_name=f"Wikipedia: {page['title']}",
@@ -2472,7 +2502,8 @@ def build_wikipedia_context(query: str, limit: int = 3) -> list[tuple[CorpusChun
             hits.append((chunk, _wikipedia_score(query, chunk_text, result_rank, limit), "wikipedia"))
 
     hits.sort(key=lambda item: item[1], reverse=True)
-    return hits[:limit]
+    # Allow more results when there are several pages worth fetching
+    return hits[: max(limit, limit * max_chunks_per_page)]
 
 
 def _sentences(text: str) -> list[str]:
@@ -2556,9 +2587,18 @@ def _generate_answer(
                 "role": "system",
                 "content": (
                     "You are the final answer stage in an agentic RAG pipeline. "
-                    "Use only the provided context, synthesize a direct final answer, "
-                    "include bracket citations like [1], cite Wikipedia URLs only when provided "
-                    "in context, and say when evidence is insufficient."
+                    "Synthesize a direct, useful, well-structured answer using the provided context "
+                    "(local corpus chunks plus Wikipedia extracts). "
+                    "Treat Wikipedia extracts as fully authoritative for general-knowledge, "
+                    "biographical, scientific, technology, and current-affairs questions — extract the "
+                    "specific fact the user asked for (names, dates, definitions, numbers) and state it plainly. "
+                    "Use bracket citations like [1], [2] keyed to the numbered context blocks; "
+                    "include Wikipedia source URLs inline when shown in the context. "
+                    "If the user's prior conversation memory or agenda is included with the question, "
+                    "tailor the wording to advance that agenda and stay consistent with earlier turns. "
+                    "Only say evidence is insufficient when NO retrieved context (local or Wikipedia) "
+                    "addresses the question at all — never refuse just because the local corpus doesn't "
+                    "cover the topic if Wikipedia content is present."
                 ),
             },
             {
@@ -2850,13 +2890,20 @@ def _answer_pipeline(payload: ChatRequest) -> ChatResponse:
         hits.sort(key=lambda item: item[1], reverse=True)
         hits = hits[: payload.top_k]
 
-    wikipedia_hits = build_wikipedia_context(retrieval_query, limit=min(3, max(1, payload.top_k))) if payload.use_wikipedia else []
+    # Wikipedia search should use ONLY the user's question, not the bloated
+    # retrieval_query that includes conversation memory (which would dilute
+    # the search with prior-turn vocabulary).
+    local_top_score = hits[0][1] if hits else 0.0
+    wiki_limit = max(3, payload.top_k) if local_top_score < 0.6 else min(3, max(1, payload.top_k))
+    wikipedia_hits = build_wikipedia_context(question, limit=wiki_limit) if payload.use_wikipedia else []
     if wikipedia_hits:
         seen_ids = {chunk.chunk_id for chunk, _score, _source in hits}
         hits.extend([item for item in wikipedia_hits if item[0].chunk_id not in seen_ids])
         hits.sort(key=lambda item: item[1], reverse=True)
-        hits = hits[: max(payload.top_k, min(5, len(hits)))]
-        reflection = f"{reflection} Wikipedia text retrieval added {len(wikipedia_hits)} cited context chunk(s)."
+        # Keep room for Wikipedia evidence — never truncate below the wiki hit count.
+        keep = max(payload.top_k, min(8, len(hits)))
+        hits = hits[:keep]
+        reflection = f"{reflection} Wikipedia retrieval added {len(wikipedia_hits)} grounded context chunk(s)."
 
     draft_answer = _extractive_answer(retrieval_query, hits)
     if payload.use_generation and _azure_status()["chat_configured"] and hits:
@@ -5199,7 +5246,7 @@ APP_HTML = """<!doctype html>
           </div>
         </article>
       `);
-      $("#messages").scrollTop = $("#messages").scrollHeight;
+      scrollMessagesToBottom();
     }
 
     function replacePendingWithError(message) {
@@ -5239,6 +5286,7 @@ APP_HTML = """<!doctype html>
         renderChat(payload, body.message, thread);
         await loadHistory();
         renderSessionList();
+        scrollMessagesToBottom();
       } catch (error) {
         replacePendingWithError(error.message);
         $("#badges").innerHTML = badge("error", "bad");
@@ -5449,6 +5497,25 @@ APP_HTML = """<!doctype html>
         : badge("Ready");
     }
 
+    function scrollMessagesToBottom(options = {}) {
+      const focusInput = options.focusInput !== false;
+      const messageList = $("#messages");
+      if (!messageList) return;
+      // Double rAF: first frame lets the DOM lay out the new HTML, second
+      // frame measures the post-layout scrollHeight reliably.
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          messageList.scrollTop = messageList.scrollHeight;
+          if (focusInput) {
+            const input = $("#question");
+            if (input && !state.isGenerating && document.activeElement !== input) {
+              try { input.focus({ preventScroll: true }); } catch (_e) { input.focus(); }
+            }
+          }
+        });
+      });
+    }
+
     function renderSessionMessages(history) {
       const turns = (history || []).map((turn) => ({
         ...turn,
@@ -5507,7 +5574,7 @@ APP_HTML = """<!doctype html>
         `;
       }).join("");
       const messageList = $("#messages");
-      messageList.scrollTop = messageList.scrollHeight;
+      scrollMessagesToBottom();
       bindMessageActions();
       syncResponsivePanels();
     }
@@ -5733,7 +5800,7 @@ APP_HTML = """<!doctype html>
           </div>
         </article>
       `);
-      $("#messages").scrollTop = $("#messages").scrollHeight;
+      scrollMessagesToBottom();
       try {
         const payload = await apiFetch(`/api/chats/${encodeURIComponent(state.activeSessionId)}/regenerate`, {
           method: "POST",
