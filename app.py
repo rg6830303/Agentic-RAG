@@ -458,8 +458,27 @@ def _production_runtime() -> bool:
     return _secure_auth_cookie()
 
 
+_DB_URL_ENV_ALIASES = (
+    "DATABASE_URL",
+    "POSTGRES_URL",
+    "POSTGRES_PRISMA_URL",
+    "POSTGRES_URL_NON_POOLING",
+    "NEON_DATABASE_URL",
+    "PG_DATABASE_URL",
+)
+
+
+def _resolve_database_url() -> str | None:
+    """Check DATABASE_URL and Vercel/Neon Postgres integration aliases."""
+    for key in _DB_URL_ENV_ALIASES:
+        val = os.getenv(key)
+        if val:
+            return val
+    return None
+
+
 def _configured_database_url() -> str | None:
-    database_url = os.getenv("DATABASE_URL")
+    database_url = _resolve_database_url()
     if database_url:
         return database_url
     if _production_runtime():
@@ -470,7 +489,7 @@ def _configured_database_url() -> str | None:
 def _durable_auth_configured() -> bool:
     if not _production_runtime():
         return True
-    return bool(os.getenv("DATABASE_URL") and (os.getenv("SESSION_SECRET") or os.getenv("AUTH_SECRET")))
+    return bool(_resolve_database_url() and (os.getenv("SESSION_SECRET") or os.getenv("AUTH_SECRET")))
 
 
 def _auth_setup_error() -> str:
@@ -488,7 +507,7 @@ def _missing_auth_configuration() -> list[str]:
     if not _production_runtime():
         return []
     missing: list[str] = []
-    if not os.getenv("DATABASE_URL"):
+    if not _resolve_database_url():
         missing.append("DATABASE_URL")
     if not (os.getenv("SESSION_SECRET") or os.getenv("AUTH_SECRET")):
         missing.append("SESSION_SECRET/AUTH_SECRET")
@@ -1201,7 +1220,7 @@ def _json_loaded(value: Any, fallback: Any) -> Any:
 
 class AccountStore:
     def __init__(self, database_url: str | None = None) -> None:
-        self.database_url = database_url or os.getenv("DATABASE_URL") or f"sqlite:///{APP_DB_PATH}"
+        self.database_url = database_url or _resolve_database_url() or f"sqlite:///{APP_DB_PATH}"
         self.is_postgres = self.database_url.startswith(("postgres://", "postgresql://"))
         self._lock = RLock()
         self._psycopg: Any = None
@@ -1903,11 +1922,11 @@ def _account_store_status(check_reachable: bool = False) -> dict[str, Any]:
             if database_url
             else "unconfigured"
         ),
-        "database_url_configured": bool(os.getenv("DATABASE_URL")),
+        "database_url_configured": bool(_resolve_database_url()),
         "database_configured": bool(database_url),
-        "durable_database_configured": bool(os.getenv("DATABASE_URL")) or not _production_runtime(),
+        "durable_database_configured": bool(_resolve_database_url()) or not _production_runtime(),
         "production_runtime": _production_runtime(),
-        "durable": bool(os.getenv("DATABASE_URL")) or not _production_runtime(),
+        "durable": bool(_resolve_database_url()) or not _production_runtime(),
         "ephemeral": False,
         "available": store is not None,
         "reachable": None,
@@ -1938,7 +1957,7 @@ def _auth_debug_status(check_reachable: bool = True) -> dict[str, Any]:
     missing = _missing_auth_configuration()
     return {
         "auth_configured": not missing,
-        "database_url_present": bool(os.getenv("DATABASE_URL")),
+        "database_url_present": bool(_resolve_database_url()),
         "session_secret_present": bool(os.getenv("SESSION_SECRET") or os.getenv("AUTH_SECRET")),
         "database_reachable": bool(database_reachable) if database_reachable is not None else False,
         "cookie_name": AUTH_COOKIE_NAME,
@@ -6132,7 +6151,7 @@ def health_check() -> dict[str, Any]:
         "auth_configured": _durable_auth_configured(),
         "auth_degraded": bool(_auth_setup_warning()),
         "database_configured": bool(_configured_database_url()),
-        "database_url_configured": bool(os.getenv("DATABASE_URL")),
+        "database_url_configured": bool(_resolve_database_url()),
     }
 
 
@@ -6204,7 +6223,7 @@ def auth_signup(payload: AuthSignupRequest, response: Response) -> AuthResponse:
     LOGGER.info(
         "Auth signup request received email_hash=%s database_url_configured=%s auth_configured=%s",
         _email_log_tag(payload.email),
-        bool(os.getenv("DATABASE_URL")),
+        bool(_resolve_database_url()),
         _durable_auth_configured(),
     )
     setup_error = _auth_setup_error()
@@ -6235,7 +6254,7 @@ def auth_login(payload: AuthLoginRequest, response: Response) -> AuthResponse:
     LOGGER.info(
         "Auth login request received email_hash=%s database_url_configured=%s auth_configured=%s",
         _email_log_tag(payload.email),
-        bool(os.getenv("DATABASE_URL")),
+        bool(_resolve_database_url()),
         _durable_auth_configured(),
     )
     setup_error = _auth_setup_error()
