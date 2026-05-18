@@ -28,7 +28,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 
-SERVICE_NAME = "Advanced Agentic RAG"
+SERVICE_NAME = "Ultron — Autonomous RAG Intelligence"
 SERVICE_VERSION = "0.3.0"
 ROOT_DIR = Path(__file__).resolve().parent
 CORPUS_DIR = ROOT_DIR / "data" / "sample_corpus"
@@ -44,9 +44,11 @@ DEV_AUTH_SECRET = secrets.token_urlsafe(48)
 AUTH_CONFIG_ERROR = "Authentication is not configured"
 AUTH_CONFIG_DETAIL = "Set DATABASE_URL and SESSION_SECRET in Vercel Environment Variables."
 WIKIPEDIA_API_URL = "https://en.wikipedia.org/w/api.php"
-WIKIPEDIA_USER_AGENT = "Agentic-RAG/0.3 (https://github.com/rg6830303/Agentic-RAG)"
+WIKIPEDIA_USER_AGENT = "Ultron-RAG/0.4 (https://github.com/rg6830303/Agentic-RAG)"
 WIKIPEDIA_TIMEOUT_SECONDS = 4
 WIKIPEDIA_CACHE_TTL_SECONDS = 60 * 30
+DUCKDUCKGO_API_URL = "https://api.duckduckgo.com/"
+DUCKDUCKGO_TIMEOUT_SECONDS = 4
 WIKIPEDIA_CACHE: dict[str, tuple[float, Any]] = {}
 WIKIPEDIA_CACHE_LOCK = RLock()
 LOGGER = logging.getLogger("agentic_rag")
@@ -389,7 +391,7 @@ def _compact_text(text: str, max_chars: int = 180) -> str:
 
 def _session_name_from_prompt(prompt: str) -> str:
     clean = _compact_text(prompt, 72).strip(" .?!")
-    return clean or "New RAG conversation"
+    return clean or "Ultron Conversation"
 
 
 def _normalize_email(email: str) -> str:
@@ -977,7 +979,7 @@ class ChatHistoryService:
             "session_id": session_id,
             "session_name": _compact_text(
                 session_name
-                or (f"Copy of {(seed or {}).get('session_name', 'conversation')}" if seed else "New RAG conversation"),
+                or (f"Copy of {(seed or {}).get('session_name', 'conversation')}" if seed else "Ultron Conversation"),
                 120,
             ),
             "user_agenda": str((seed or {}).get("user_agenda") or ""),
@@ -1485,7 +1487,7 @@ class AccountStore:
             ]
         display_title = _compact_text(
             title
-            or (f"Copy of {(seed or {}).get('session_name', 'conversation')}" if seed else "New RAG conversation"),
+            or (f"Copy of {(seed or {}).get('session_name', 'conversation')}" if seed else "Ultron Conversation"),
             120,
         )
         self._execute(
@@ -1810,9 +1812,9 @@ class AccountStore:
         normalized = _normalize_history(history)
         last_turn = normalized[-1] if normalized else {}
         existing = self.get_thread(user_id, thread_id)
-        existing_title = str((existing or {}).get("session_name") or "New RAG conversation")
+        existing_title = str((existing or {}).get("session_name") or "Ultron Conversation")
         title = existing_title
-        if existing_title == "New RAG conversation" and last_turn:
+        if existing_title in ("Ultron Conversation", "New RAG conversation") and last_turn:
             title = _session_name_from_prompt(str(last_turn.get("user_prompt") or ""))
         agenda = _summarize_agenda(
             str((existing or {}).get("user_agenda") or ""),
@@ -1851,7 +1853,7 @@ class AccountStore:
         return {
             "version": 3,
             "session_id": row["id"],
-            "session_name": _compact_text(str(row.get("title") or "New RAG conversation"), 120),
+            "session_name": _compact_text(str(row.get("title") or "Ultron Conversation"), 120),
             "user_agenda": str(row.get("user_agenda") or ""),
             "memory_summary": str(row.get("memory_summary") or ""),
             "created_at": str(row.get("created_at") or _utc_now_iso()),
@@ -2506,6 +2508,97 @@ def build_wikipedia_context(query: str, limit: int = 3) -> list[tuple[CorpusChun
     return hits[: max(limit, limit * max_chunks_per_page)]
 
 
+def _duckduckgo_request(query: str) -> dict[str, Any] | None:
+    """Free DuckDuckGo Instant Answer API. No key required, no rate-limit headers.
+
+    Returns Abstract (encyclopedic summary), Definition, AbstractURL, and a
+    RelatedTopics list — useful for current-events, biographical, and
+    definitional queries that Wikipedia may also serve."""
+    cleaned = re.sub(r"\s+", " ", query).strip()
+    if not cleaned:
+        return None
+    cache_key = f"ddg:{cleaned.lower()[:200]}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
+    try:
+        response = requests.get(
+            DUCKDUCKGO_API_URL,
+            params={
+                "q": cleaned[:300],
+                "format": "json",
+                "no_html": 1,
+                "skip_disambig": 1,
+                "t": "ultron-rag",
+            },
+            headers={"User-Agent": WIKIPEDIA_USER_AGENT},
+            timeout=DUCKDUCKGO_TIMEOUT_SECONDS,
+        )
+    except requests.RequestException:
+        return _cache_set(cache_key, None)
+    if response.status_code >= 400:
+        return _cache_set(cache_key, None)
+    try:
+        return _cache_set(cache_key, response.json())
+    except ValueError:
+        return _cache_set(cache_key, None)
+
+
+def build_duckduckgo_context(query: str, limit: int = 3) -> list[tuple[CorpusChunk, float, str]]:
+    """Augment retrieval with DuckDuckGo Instant Answer abstracts + related topics."""
+    if os.getenv("AGENTIC_RAG_DISABLE_DUCKDUCKGO", "").strip().lower() in {"1", "true", "yes"}:
+        return []
+    payload = _duckduckgo_request(query)
+    if not payload:
+        return []
+    hits: list[tuple[CorpusChunk, float, str]] = []
+    abstract = str(payload.get("AbstractText") or payload.get("Abstract") or "").strip()
+    abstract_url = str(payload.get("AbstractURL") or "").strip()
+    heading = str(payload.get("Heading") or query).strip() or "DuckDuckGo result"
+    source_name = str(payload.get("AbstractSource") or "DuckDuckGo").strip()
+    if abstract:
+        for ordinal, chunk_text in enumerate(_split_text(abstract, max_chars=1100, overlap=120)[:2]):
+            chunk = CorpusChunk(
+                chunk_id=f"duckduckgo:{abs(hash(abstract_url or heading))}:{ordinal}",
+                file_name=f"DuckDuckGo: {heading}",
+                relative_path=abstract_url or f"https://duckduckgo.com/?q={requests.utils.quote(heading)}",
+                text=chunk_text,
+                ordinal=ordinal,
+                tokens=_tokenize(chunk_text),
+                strategy="duckduckgo_abstract",
+                source_type="web",
+                source_url=abstract_url or f"https://duckduckgo.com/?q={requests.utils.quote(heading)}",
+                page_title=f"{source_name}: {heading}",
+            )
+            score = round(0.85 + _word_overlap(query, chunk_text) * 2.4, 4)
+            hits.append((chunk, score, "duckduckgo"))
+    # RelatedTopics gives extra entity-level snippets useful for breadth
+    related = payload.get("RelatedTopics") or []
+    for rank, item in enumerate(related[: max(1, limit * 2)], start=1):
+        if not isinstance(item, dict):
+            continue
+        text = str(item.get("Text") or "").strip()
+        first_url = str(item.get("FirstURL") or "").strip()
+        if not text or not first_url:
+            continue
+        topic_chunk = CorpusChunk(
+            chunk_id=f"duckduckgo:related:{abs(hash(first_url))}",
+            file_name=f"DuckDuckGo: {text[:80]}",
+            relative_path=first_url,
+            text=text,
+            ordinal=rank,
+            tokens=_tokenize(text),
+            strategy="duckduckgo_related",
+            source_type="web",
+            source_url=first_url,
+            page_title=text[:120],
+        )
+        score = round(0.72 + (max(limit - rank + 1, 1) / max(limit, 1)) * 0.4 + _word_overlap(query, text) * 1.6, 4)
+        hits.append((topic_chunk, score, "duckduckgo"))
+    hits.sort(key=lambda item: item[1], reverse=True)
+    return hits[: max(limit, 4)]
+
+
 def _sentences(text: str) -> list[str]:
     return [
         sentence.strip()
@@ -2890,20 +2983,26 @@ def _answer_pipeline(payload: ChatRequest) -> ChatResponse:
         hits.sort(key=lambda item: item[1], reverse=True)
         hits = hits[: payload.top_k]
 
-    # Wikipedia search should use ONLY the user's question, not the bloated
-    # retrieval_query that includes conversation memory (which would dilute
-    # the search with prior-turn vocabulary).
+    # Web augmentation: Wikipedia + DuckDuckGo Instant Answer. Always use ONLY
+    # the user's question (drop the memory bloat that would dilute the search).
     local_top_score = hits[0][1] if hits else 0.0
     wiki_limit = max(3, payload.top_k) if local_top_score < 0.6 else min(3, max(1, payload.top_k))
     wikipedia_hits = build_wikipedia_context(question, limit=wiki_limit) if payload.use_wikipedia else []
-    if wikipedia_hits:
+    ddg_hits = build_duckduckgo_context(question, limit=3) if payload.use_wikipedia else []
+    web_hits = wikipedia_hits + ddg_hits
+    if web_hits:
         seen_ids = {chunk.chunk_id for chunk, _score, _source in hits}
-        hits.extend([item for item in wikipedia_hits if item[0].chunk_id not in seen_ids])
+        hits.extend([item for item in web_hits if item[0].chunk_id not in seen_ids])
         hits.sort(key=lambda item: item[1], reverse=True)
-        # Keep room for Wikipedia evidence — never truncate below the wiki hit count.
-        keep = max(payload.top_k, min(8, len(hits)))
+        # Keep room for web evidence — never truncate below the merged count.
+        keep = max(payload.top_k, min(10, len(hits)))
         hits = hits[:keep]
-        reflection = f"{reflection} Wikipedia retrieval added {len(wikipedia_hits)} grounded context chunk(s)."
+        bits = []
+        if wikipedia_hits:
+            bits.append(f"Wikipedia ({len(wikipedia_hits)})")
+        if ddg_hits:
+            bits.append(f"DuckDuckGo ({len(ddg_hits)})")
+        reflection = f"{reflection} Web retrieval added {len(web_hits)} grounded chunks from " + " + ".join(bits) + "."
 
     draft_answer = _extractive_answer(retrieval_query, hits)
     if payload.use_generation and _azure_status()["chat_configured"] and hits:
@@ -3066,35 +3165,42 @@ APP_HTML = """<!doctype html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Advanced Agentic RAG</title>
+  <title>Ultron — Autonomous RAG Intelligence</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500&family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0&display=swap" rel="stylesheet">
   <style>
     :root {
       color-scheme: dark;
-      --bg: #051424;
-      --navy: #010f1f;
-      --navy-2: #0d1c2d;
-      --panel: #122131;
-      --panel-2: #1c2b3c;
-      --surface-variant: #273647;
-      --line: #3e4850;
-      --line-soft: rgba(136, 146, 155, 0.28);
-      --ink: #d4e4fa;
-      --muted: #bec8d2;
-      --soft: #c9e6ff;
-      --cyan: #89ceff;
-      --teal: #4ae176;
-      --amber: #fbbf24;
-      --rose: #ffb4ab;
-      --green: #4ae176;
-      --violet: #c0c1ff;
-      --radius: 12px;
-      --radius-sm: 8px;
+      /* Ultron palette: dark red + dark blue + black */
+      --bg: #06070d;
+      --navy: #050912;
+      --navy-2: #0a1124;
+      --panel: #0f1530;
+      --panel-2: #16203e;
+      --surface-variant: #1b2645;
+      --line: #2a1b22;
+      --line-soft: rgba(220, 60, 70, 0.22);
+      --ink: #f1f5ff;
+      --muted: #98a5c0;
+      --soft: #c4d1ee;
+      --cyan: #6bc6ff;
+      --teal: #5fe2c0;
+      --amber: #ffb454;
+      --rose: #ff7c8c;
+      --green: #5fe2c0;
+      --violet: #b9a8ff;
+      --crimson: #d11f2c;
+      --crimson-soft: #f04d56;
+      --crimson-deep: #5a0b13;
+      --azure: #2b6dff;
+      --azure-deep: #112756;
+      --shadow-red: 0 12px 36px rgba(209, 31, 44, 0.28);
+      --radius: 14px;
+      --radius-sm: 9px;
       --space: 16px;
-      --shadow: 0 22px 70px rgba(0, 0, 0, 0.34);
-      --shadow-soft: 0 10px 30px rgba(0, 0, 0, 0.22);
+      --shadow: 0 26px 80px rgba(0, 0, 0, 0.55);
+      --shadow-soft: 0 14px 38px rgba(0, 0, 0, 0.42);
     }
     * { box-sizing: border-box; }
     html { width: 100%; overflow-x: hidden; }
@@ -3106,9 +3212,22 @@ APP_HTML = """<!doctype html>
       font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       color: var(--ink);
       background:
-        radial-gradient(circle at top left, rgba(137, 206, 255, 0.12), transparent 34rem),
-        linear-gradient(135deg, #010f1f 0%, #051424 45%, #0d1c2d 100%);
+        radial-gradient(circle at 18% 12%, rgba(209, 31, 44, 0.18), transparent 32rem),
+        radial-gradient(circle at 82% 88%, rgba(43, 109, 255, 0.18), transparent 36rem),
+        radial-gradient(circle at 50% 50%, rgba(20, 0, 6, 0.55), transparent 40rem),
+        linear-gradient(135deg, #06070d 0%, #0a1124 55%, #050912 100%);
       letter-spacing: 0;
+      position: relative;
+    }
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background:
+        repeating-linear-gradient(0deg, rgba(255,255,255,0.012) 0 1px, transparent 1px 3px);
+      mix-blend-mode: overlay;
+      z-index: 0;
     }
     button, input, select, textarea { font: inherit; }
     h1, h2, h3, p { margin: 0; }
@@ -3139,24 +3258,41 @@ APP_HTML = """<!doctype html>
     body.auth-required .auth-shell { display: grid; }
     .auth-card {
       width: min(100%, 440px);
-      border: 1px solid var(--line-soft);
-      border-radius: 14px;
-      background: linear-gradient(180deg, rgba(16, 36, 63, 0.94), rgba(9, 26, 49, 0.9));
-      box-shadow: var(--shadow);
-      padding: 24px;
+      border: 1px solid rgba(209, 31, 44, 0.32);
+      border-radius: 16px;
+      background:
+        radial-gradient(circle at 20% 0%, rgba(209, 31, 44, 0.16), transparent 60%),
+        linear-gradient(180deg, rgba(15, 21, 48, 0.95), rgba(6, 7, 13, 0.96));
+      box-shadow: var(--shadow), 0 0 0 1px rgba(255, 255, 255, 0.02) inset;
+      padding: 28px;
       display: grid;
       gap: 18px;
+      animation: ultronFadeIn 360ms cubic-bezier(0.2, 0.8, 0.2, 1);
+      backdrop-filter: blur(6px);
     }
-    .auth-card h1 { font-size: 28px; line-height: 1.1; }
+    .auth-card h1 {
+      font-size: 32px;
+      line-height: 1.1;
+      letter-spacing: 0.5px;
+      background: linear-gradient(180deg, #ffffff, #ff7c8c);
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
     .auth-card p { color: var(--muted); line-height: 1.5; }
     .auth-tabs {
       display: grid;
       grid-template-columns: 1fr 1fr;
       gap: 8px;
       padding: 4px;
-      border: 1px solid var(--line-soft);
+      border: 1px solid rgba(209, 31, 44, 0.25);
       border-radius: 10px;
-      background: rgba(3, 18, 34, 0.5);
+      background: rgba(6, 7, 13, 0.55);
+    }
+    .auth-tab.active {
+      color: var(--ink);
+      background: linear-gradient(135deg, rgba(209, 31, 44, 0.32), rgba(43, 109, 255, 0.22));
+      box-shadow: inset 0 0 0 1px rgba(255, 80, 90, 0.35);
     }
     .auth-tab {
       min-height: 42px;
@@ -3166,11 +3302,9 @@ APP_HTML = """<!doctype html>
       background: transparent;
       cursor: pointer;
       font-weight: 800;
+      transition: background 200ms ease;
     }
-    .auth-tab.active {
-      color: var(--ink);
-      background: rgba(56, 189, 248, 0.16);
-    }
+    .auth-tab:hover:not(.active) { background: rgba(209, 31, 44, 0.06); color: var(--ink); }
     .auth-form { display: grid; gap: 12px; }
     .auth-form [hidden] { display: none !important; }
     #authForm[data-auth-mode="login"] .signup-only { display: none; }
@@ -3332,8 +3466,10 @@ APP_HTML = """<!doctype html>
     }
     aside {
       padding: 22px;
-      border-right: 1px solid var(--line-soft);
-      background: linear-gradient(180deg, rgba(1, 15, 31, 0.98), rgba(13, 28, 45, 0.96));
+      border-right: 1px solid rgba(209, 31, 44, 0.18);
+      background:
+        radial-gradient(circle at 0% 0%, rgba(209, 31, 44, 0.12), transparent 18rem),
+        linear-gradient(180deg, rgba(6, 7, 13, 0.98), rgba(10, 17, 36, 0.96));
       position: sticky;
       top: 0;
       height: 100vh;
@@ -3358,16 +3494,52 @@ APP_HTML = """<!doctype html>
     .brand h1 { font-size: 30px; line-height: 1.08; }
     .brand p { color: var(--muted); line-height: 1.45; }
     .brand-mark {
-      width: 42px;
-      height: 42px;
+      width: 56px;
+      height: 56px;
       display: grid;
       place-items: center;
-      border-radius: 12px;
-      color: #04111f;
-      background: linear-gradient(135deg, var(--cyan), #0ea5e9);
-      font-weight: 900;
-      letter-spacing: 0;
-      box-shadow: 0 10px 24px rgba(56, 189, 248, 0.24);
+      border-radius: 16px;
+      color: #fff;
+      background: radial-gradient(circle at 50% 35%, #2a0306 0%, #110305 70%, #000 100%);
+      border: 1px solid rgba(209, 31, 44, 0.55);
+      box-shadow:
+        0 0 0 1px rgba(209, 31, 44, 0.25),
+        0 12px 32px rgba(209, 31, 44, 0.35),
+        inset 0 0 18px rgba(209, 31, 44, 0.3);
+      overflow: hidden;
+      position: relative;
+      animation: ultronGlow 4s ease-in-out infinite;
+      transform-style: preserve-3d;
+      perspective: 400px;
+    }
+    .brand-mark:hover { transform: rotateY(8deg) rotateX(-4deg) scale(1.04); transition: transform 280ms cubic-bezier(0.2, 0.8, 0.2, 1); }
+    .brand-mark svg { width: 70%; height: 70%; filter: drop-shadow(0 0 4px rgba(255, 60, 70, 0.55)); }
+    .brand-mark.compact { width: 36px; height: 36px; border-radius: 11px; }
+    .brand-mark.compact svg { width: 78%; height: 78%; }
+    @keyframes ultronGlow {
+      0%, 100% { box-shadow: 0 0 0 1px rgba(209, 31, 44, 0.25), 0 12px 32px rgba(209, 31, 44, 0.35), inset 0 0 18px rgba(209, 31, 44, 0.3); }
+      50% { box-shadow: 0 0 0 1px rgba(240, 77, 86, 0.45), 0 18px 48px rgba(209, 31, 44, 0.55), inset 0 0 28px rgba(255, 100, 110, 0.45); }
+    }
+    @keyframes ultronFadeIn {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes ultronShine {
+      0% { background-position: -120% 0; }
+      100% { background-position: 220% 0; }
+    }
+    .ultron-shine {
+      position: relative;
+      overflow: hidden;
+    }
+    .ultron-shine::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(110deg, transparent 35%, rgba(209, 31, 44, 0.18) 50%, transparent 65%);
+      background-size: 220% 100%;
+      animation: ultronShine 6s linear infinite;
+      pointer-events: none;
     }
     .sidebar-section {
       border-top: 1px solid var(--line-soft);
@@ -3437,11 +3609,16 @@ APP_HTML = """<!doctype html>
     .metric strong { display: block; font-size: 24px; color: var(--soft); }
     .metric span { display: block; margin-top: 4px; color: var(--muted); font-size: 12px; }
     .panel {
-      border: 1px solid var(--line-soft);
+      border: 1px solid rgba(255, 255, 255, 0.04);
+      border-top: 1px solid rgba(209, 31, 44, 0.18);
       border-radius: var(--radius);
-      background: linear-gradient(180deg, rgba(16, 36, 63, 0.9), rgba(9, 26, 49, 0.84));
+      background:
+        radial-gradient(circle at 100% 0%, rgba(43, 109, 255, 0.08), transparent 18rem),
+        linear-gradient(180deg, rgba(15, 21, 48, 0.92), rgba(6, 7, 13, 0.94));
       box-shadow: var(--shadow);
+      transition: border-color 200ms ease, transform 200ms ease;
     }
+    .panel:hover { border-top-color: rgba(209, 31, 44, 0.4); }
     .panel.pad { padding: 20px; }
     .section { display: none; }
     .section.active { display: grid; gap: 18px; }
@@ -3497,26 +3674,52 @@ APP_HTML = """<!doctype html>
       border-radius: 8px;
       padding: 10px 11px;
     }
+    .session-card-wrap { position: relative; }
     .session-card {
       width: 100%;
       text-align: left;
-      border: 1px solid var(--line-soft);
+      border: 1px solid rgba(255, 255, 255, 0.04);
       border-radius: var(--radius-sm);
-      padding: 12px;
-      background: rgba(8, 23, 42, 0.62);
+      padding: 12px 38px 12px 12px;
+      background: rgba(6, 7, 13, 0.65);
       color: var(--soft);
       cursor: pointer;
-      transition: all 0.15s ease;
+      transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
     }
     .session-card:hover:not(.active) {
-      border-color: rgba(56, 189, 248, 0.4);
-      background: rgba(8, 23, 42, 0.8);
+      border-color: rgba(209, 31, 44, 0.32);
+      background: rgba(15, 21, 48, 0.82);
+      transform: translateY(-1px);
     }
     .session-card.active {
-      border-color: rgba(56, 189, 248, 0.8);
-      background: rgba(56, 189, 248, 0.16);
-      box-shadow: 0 4px 12px rgba(56, 189, 248, 0.15);
+      border-color: rgba(209, 31, 44, 0.55);
+      background: linear-gradient(135deg, rgba(209, 31, 44, 0.18), rgba(43, 109, 255, 0.1));
+      box-shadow: 0 8px 22px rgba(209, 31, 44, 0.22);
     }
+    .session-delete {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      width: 26px;
+      height: 26px;
+      display: grid;
+      place-items: center;
+      border-radius: 6px;
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      opacity: 0;
+      transition: opacity 180ms ease, background 180ms ease, color 180ms ease, border-color 180ms ease;
+    }
+    .session-card-wrap:hover .session-delete,
+    .session-delete:focus-visible { opacity: 1; }
+    .session-delete:hover {
+      color: #fff;
+      background: rgba(209, 31, 44, 0.32);
+      border-color: rgba(209, 31, 44, 0.6);
+    }
+    .session-delete .material-symbols-outlined { font-size: 18px; }
     .session-card strong {
       display: block;
       margin-bottom: 6px;
@@ -3591,20 +3794,22 @@ APP_HTML = """<!doctype html>
       transition: all 0.15s ease;
     }
     .message-row.user .message {
-      background: linear-gradient(135deg, rgba(56, 189, 248, 0.18), rgba(45, 212, 191, 0.12));
-      border-color: rgba(56, 189, 248, 0.52);
+      background: linear-gradient(135deg, rgba(43, 109, 255, 0.22), rgba(20, 28, 78, 0.7));
+      border-color: rgba(43, 109, 255, 0.45);
       color: var(--ink);
       box-shadow: var(--shadow-soft);
     }
     .message-row.assistant .message {
-      background: linear-gradient(135deg, rgba(16, 36, 63, 0.8), rgba(10, 27, 49, 0.7));
-      border-color: rgba(56, 189, 248, 0.3);
+      background:
+        radial-gradient(circle at 0% 0%, rgba(209, 31, 44, 0.10), transparent 14rem),
+        linear-gradient(135deg, rgba(15, 21, 48, 0.92), rgba(6, 7, 13, 0.92));
+      border-color: rgba(209, 31, 44, 0.32);
       color: var(--soft);
       box-shadow: var(--shadow-soft);
     }
     .message-row.assistant.loading .message {
-      border-color: rgba(45, 212, 191, 0.48);
-      background: linear-gradient(135deg, rgba(16, 48, 76, 0.88), rgba(8, 28, 52, 0.78));
+      border-color: rgba(209, 31, 44, 0.5);
+      background: linear-gradient(135deg, rgba(35, 5, 10, 0.85), rgba(10, 17, 36, 0.85));
     }
     .message h4 {
       margin: 0 0 8px;
@@ -3781,23 +3986,142 @@ APP_HTML = """<!doctype html>
     .suggestion-list { display: grid; gap: 8px; }
     .suggestion-button {
       text-align: left;
-      border: 1px solid var(--line-soft);
-      border-radius: 8px;
-      padding: 11px 12px;
+      border: 1px solid rgba(209, 31, 44, 0.22);
+      border-radius: 10px;
+      padding: 12px 14px;
       color: var(--soft);
-      background: rgba(9, 26, 49, 0.82);
+      background:
+        radial-gradient(circle at 0% 0%, rgba(209, 31, 44, 0.10), transparent 12rem),
+        linear-gradient(135deg, rgba(15, 21, 48, 0.85), rgba(6, 7, 13, 0.9));
       cursor: pointer;
       line-height: 1.5;
-      transition: all 0.15s ease;
+      transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+      position: relative;
+    }
+    .suggestion-button::before {
+      content: "▸";
+      color: var(--crimson-soft);
+      margin-right: 8px;
+      transition: transform 200ms ease;
+      display: inline-block;
     }
     .suggestion-button:hover {
-      border-color: rgba(56, 189, 248, 0.5);
-      background: rgba(16, 36, 63, 0.9);
-      color: var(--cyan);
+      border-color: rgba(209, 31, 44, 0.55);
+      background: linear-gradient(135deg, rgba(35, 8, 12, 0.92), rgba(15, 21, 48, 0.92));
+      color: var(--ink);
+      transform: translateX(2px);
+      box-shadow: 0 8px 22px rgba(209, 31, 44, 0.25);
     }
-    .suggestion-button:active {
-      transform: scale(0.98);
+    .suggestion-button:hover::before { transform: translateX(3px); }
+    .suggestion-button:active { transform: translateX(1px) scale(0.99); }
+    .inline-suggestions {
+      padding: 14px 16px;
+      animation: ultronFadeIn 280ms cubic-bezier(0.2, 0.8, 0.2, 1);
     }
+    .inline-suggestions[hidden] { display: none; }
+    .inline-suggestions-head {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--crimson-soft);
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 0.6px;
+      text-transform: uppercase;
+      margin-bottom: 10px;
+    }
+    .inline-suggestions-head .material-symbols-outlined { font-size: 18px; }
+    .inline-suggestion-list {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 8px;
+    }
+    .inline-suggestion-list .suggestion-button { padding: 10px 12px; font-size: 13px; }
+    .eval-chart {
+      display: grid;
+      gap: 14px;
+      margin-top: 18px;
+    }
+    .eval-bar {
+      display: grid;
+      grid-template-columns: 160px 1fr 56px;
+      align-items: center;
+      gap: 12px;
+    }
+    .eval-bar-label { color: var(--muted); font-size: 13px; font-weight: 700; }
+    .eval-bar-track {
+      position: relative;
+      height: 22px;
+      background: rgba(6, 7, 13, 0.6);
+      border: 1px solid rgba(255, 255, 255, 0.04);
+      border-radius: 999px;
+      overflow: hidden;
+    }
+    .eval-bar-fill {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      left: 0;
+      width: 0;
+      border-radius: 999px;
+      background: linear-gradient(90deg, var(--crimson) 0%, var(--crimson-soft) 55%, var(--azure) 100%);
+      box-shadow: 0 0 16px rgba(209, 31, 44, 0.55);
+      transition: width 720ms cubic-bezier(0.2, 0.8, 0.2, 1);
+    }
+    .eval-bar-value { color: var(--ink); font-weight: 800; text-align: right; font-variant-numeric: tabular-nums; }
+    .eval-history {
+      display: grid;
+      grid-auto-flow: column;
+      grid-auto-columns: 1fr;
+      gap: 6px;
+      align-items: end;
+      height: 90px;
+      margin-top: 22px;
+      padding: 8px 10px 0;
+      border-top: 1px solid rgba(209, 31, 44, 0.14);
+    }
+    .eval-history:empty::before {
+      content: "Run history will appear here after multiple evaluations.";
+      color: var(--muted);
+      font-size: 12px;
+      grid-column: 1 / -1;
+      align-self: center;
+      justify-self: center;
+    }
+    .eval-history-bar {
+      position: relative;
+      display: grid;
+      align-content: end;
+      justify-items: center;
+      gap: 4px;
+      min-height: 12px;
+    }
+    .eval-history-bar > .bar {
+      width: 100%;
+      max-width: 28px;
+      background: linear-gradient(180deg, var(--crimson-soft), var(--azure-deep));
+      border-radius: 4px 4px 0 0;
+      box-shadow: 0 -4px 14px rgba(209, 31, 44, 0.35);
+      animation: ultronFadeIn 320ms ease;
+    }
+    .eval-history-bar > .label { color: var(--muted); font-size: 10px; letter-spacing: 0.3px; }
+    .eval-history-bar > .tip {
+      position: absolute;
+      bottom: calc(100% + 4px);
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0, 0, 0, 0.86);
+      border: 1px solid rgba(209, 31, 44, 0.45);
+      color: var(--ink);
+      font-size: 11px;
+      padding: 4px 6px;
+      border-radius: 4px;
+      white-space: nowrap;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 160ms ease;
+    }
+    .eval-history-bar:hover > .tip { opacity: 1; }
     .source-snippet {
       color: var(--muted);
       line-height: 1.5;
@@ -3845,8 +4169,30 @@ APP_HTML = """<!doctype html>
       font-weight: 800;
       transition: all 0.15s ease;
     }
-    button.primary { color: #04111f; background: linear-gradient(135deg, var(--cyan), var(--teal)); }
-    button.primary:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 6px 16px rgba(56, 189, 248, 0.3); }
+    button.primary {
+      color: #fff;
+      background: linear-gradient(135deg, var(--crimson) 0%, var(--azure-deep) 100%);
+      border: 1px solid rgba(255, 95, 105, 0.55);
+      box-shadow: 0 8px 22px rgba(209, 31, 44, 0.32), inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+      text-shadow: 0 1px 0 rgba(0, 0, 0, 0.35);
+      letter-spacing: 0.3px;
+      position: relative;
+      overflow: hidden;
+    }
+    button.primary::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(110deg, transparent 25%, rgba(255, 255, 255, 0.16) 50%, transparent 75%);
+      transform: translateX(-100%);
+      transition: transform 600ms cubic-bezier(0.2, 0.8, 0.2, 1);
+      pointer-events: none;
+    }
+    button.primary:hover:not(:disabled) {
+      transform: translateY(-2px);
+      box-shadow: 0 14px 30px rgba(209, 31, 44, 0.42), inset 0 0 0 1px rgba(255, 120, 130, 0.4);
+    }
+    button.primary:hover:not(:disabled)::before { transform: translateX(100%); }
     button.primary:active:not(:disabled) { transform: translateY(0); }
     button.primary.loading:before {
       content: "";
@@ -4338,12 +4684,32 @@ APP_HTML = """<!doctype html>
 </head>
 <body class="auth-required">
   <section class="auth-shell" id="authShell" aria-label="Sign in">
-    <div class="auth-card">
-      <div class="brand-mark"><span class="material-symbols-outlined">memory</span></div>
+    <div class="auth-card ultron-shine">
+      <div class="brand-mark" aria-label="Ultron logo">
+        <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <defs>
+            <radialGradient id="ultronEye" cx="50%" cy="50%" r="50%">
+              <stop offset="0%" stop-color="#ffefef"/>
+              <stop offset="40%" stop-color="#ff5560"/>
+              <stop offset="100%" stop-color="#5a0b13"/>
+            </radialGradient>
+            <linearGradient id="ultronMask" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#1a0205"/>
+              <stop offset="60%" stop-color="#0b0103"/>
+              <stop offset="100%" stop-color="#000"/>
+            </linearGradient>
+          </defs>
+          <path d="M50 6 C24 6 12 22 12 44 C12 64 22 78 36 88 C42 92 46 96 50 96 C54 96 58 92 64 88 C78 78 88 64 88 44 C88 22 76 6 50 6 Z" fill="url(#ultronMask)" stroke="#d11f2c" stroke-width="1.5"/>
+          <path d="M22 40 L42 32 L46 44 L24 50 Z" fill="url(#ultronEye)"/>
+          <path d="M78 40 L58 32 L54 44 L76 50 Z" fill="url(#ultronEye)"/>
+          <path d="M34 64 L40 72 L44 66 L50 74 L56 66 L60 72 L66 64 L60 78 L52 80 L48 80 L40 78 Z" fill="url(#ultronEye)"/>
+          <path d="M50 18 L46 28 L54 28 Z" fill="#d11f2c" opacity="0.55"/>
+        </svg>
+      </div>
       <div>
-        <span class="stitch-note">Secure Workspace</span>
-        <h1>Agentic RAG</h1>
-        <p>Sign in to keep your RAG conversations, memory, citations, and source traces isolated to your account.</p>
+        <span class="stitch-note">Ultron Secure Workspace</span>
+        <h1>Ultron</h1>
+        <p>Sign in to keep your Ultron RAG conversations, memory, citations, and live web sources isolated to your account.</p>
       </div>
       <div class="auth-tabs" role="tablist" aria-label="Authentication">
         <button class="auth-tab active" id="loginTab" type="button" role="tab" aria-selected="true" data-auth-mode="login">Login</button>
@@ -4370,14 +4736,14 @@ APP_HTML = """<!doctype html>
       <span class="material-symbols-outlined">menu</span>
     </button>
     <div class="mobile-title">
-      <span class="eyebrow">Agentic RAG</span>
-      <strong id="mobileSessionName">New RAG conversation</strong>
+      <span class="eyebrow">Ultron</span>
+      <strong id="mobileSessionName">New Ultron conversation</strong>
     </div>
-    <span class="badge good" id="mobileStatusBadge">Ready</span>
+    <span class="badge good" id="mobileStatusBadge">Online</span>
   </header>
   <div class="drawer-overlay desktop-hidden" id="drawerOverlay" aria-hidden="true"></div>
   <div class="shell">
-    <aside id="sidebarDrawer" aria-label="Agentic RAG navigation">
+    <aside id="sidebarDrawer" aria-label="Ultron navigation">
       <div class="drawer-head">
         <span class="stitch-note">Workspace</span>
         <button class="icon-button" id="drawerClose" type="button" title="Close navigation">
@@ -4385,10 +4751,29 @@ APP_HTML = """<!doctype html>
         </button>
       </div>
       <section class="brand">
-        <div class="brand-mark"><span class="material-symbols-outlined">memory</span></div>
-        <h1>Agentic RAG</h1>
-        <span class="stitch-note">Precision Intelligence</span>
-        <p>Production-style AI chat over local corpus files and Wikipedia text retrieval.</p>
+        <div class="brand-mark compact" aria-label="Ultron logo">
+          <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <defs>
+              <radialGradient id="ultronEye2" cx="50%" cy="50%" r="50%">
+                <stop offset="0%" stop-color="#ffefef"/>
+                <stop offset="40%" stop-color="#ff5560"/>
+                <stop offset="100%" stop-color="#5a0b13"/>
+              </radialGradient>
+              <linearGradient id="ultronMask2" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#1a0205"/>
+                <stop offset="60%" stop-color="#0b0103"/>
+                <stop offset="100%" stop-color="#000"/>
+              </linearGradient>
+            </defs>
+            <path d="M50 6 C24 6 12 22 12 44 C12 64 22 78 36 88 C42 92 46 96 50 96 C54 96 58 92 64 88 C78 78 88 64 88 44 C88 22 76 6 50 6 Z" fill="url(#ultronMask2)" stroke="#d11f2c" stroke-width="1.5"/>
+            <path d="M22 40 L42 32 L46 44 L24 50 Z" fill="url(#ultronEye2)"/>
+            <path d="M78 40 L58 32 L54 44 L76 50 Z" fill="url(#ultronEye2)"/>
+            <path d="M34 64 L40 72 L44 66 L50 74 L56 66 L60 72 L66 64 L60 78 L52 80 L48 80 L40 78 Z" fill="url(#ultronEye2)"/>
+          </svg>
+        </div>
+        <h1>Ultron</h1>
+        <span class="stitch-note">Autonomous RAG Intelligence</span>
+        <p>Local corpus + live web (Wikipedia + DuckDuckGo) with cited sources on every answer.</p>
       </section>
       <button class="primary new-chat-button" id="newSessionButton" type="button"><span class="material-symbols-outlined">add</span> New Chat</button>
       <section class="account-card" id="accountCard">
@@ -4443,16 +4828,23 @@ APP_HTML = """<!doctype html>
             </div>
             <div id="messages" class="message-list">
               <section class="empty-state">
-                <h3>Ask your knowledge base anything</h3>
-                <p>Use the bundled corpus, optional Wikipedia text retrieval, citations, guardrails, and session memory in one workspace.</p>
+                <h3>Ask Ultron anything</h3>
+                <p>Ultron retrieves from your local corpus and the live web (Wikipedia + DuckDuckGo) and cites every source.</p>
                 <div class="empty-prompts">
-                  <button class="empty-prompt" type="button">Ask about the uploaded knowledge base</button>
-                  <button class="empty-prompt" type="button">Summarize the corpus</button>
-                  <button class="empty-prompt" type="button">Compare retrieved sources</button>
-                  <button class="empty-prompt" type="button">Search Wikipedia-backed knowledge</button>
+                  <button class="empty-prompt" type="button">Who is the CEO of NVIDIA?</button>
+                  <button class="empty-prompt" type="button">Summarize how Transformer models work</button>
+                  <button class="empty-prompt" type="button">Compare OpenAI, Anthropic, and DeepMind</button>
+                  <button class="empty-prompt" type="button">Latest developments in AI hardware</button>
                 </div>
               </section>
             </div>
+            <section class="inline-suggestions panel" id="inlineSuggestions" aria-label="Suggested follow-ups" hidden>
+              <header class="inline-suggestions-head">
+                <span class="material-symbols-outlined">auto_awesome</span>
+                <span>Suggested follow-ups</span>
+              </header>
+              <div class="inline-suggestion-list" id="inlineSuggestionList"></div>
+            </section>
             <form class="composer" id="askForm">
               <label>
                 Message
@@ -4584,16 +4976,21 @@ APP_HTML = """<!doctype html>
           </div>
         </section>
         <section class="panel pad">
+          <h2 style="margin-bottom:8px;">RAGAS-style Golden Evaluation</h2>
+          <p style="color:var(--muted); font-size:13px; margin-bottom:14px;">Run the bundled evaluation set against the current retrieval + generation stack. Re-run after every config change &mdash; the chart and rows update in place.</p>
           <div class="actions">
-            <button class="primary" id="runEval" type="button">Run Golden Evaluation</button>
+            <button class="primary" id="runEval" type="button"><span class="material-symbols-outlined">analytics</span> Run Evaluation</button>
+            <span class="composer-status" id="evalRunStatus" aria-live="polite"></span>
           </div>
         </section>
         <section class="panel pad">
           <h2>Evaluation Summary</h2>
           <div id="evalSummary" class="badge-row"><span class="badge">Not run</span></div>
+          <div id="evalChart" class="eval-chart" aria-label="Per-metric scores"></div>
+          <div id="evalHistory" class="eval-history" aria-label="Last 8 runs"></div>
         </section>
         <section class="panel pad">
-          <h2>Evaluation Rows</h2>
+          <h2>Per-sample Breakdown</h2>
           <div id="evalRows"></div>
         </section>
       </section>
@@ -4915,7 +5312,7 @@ APP_HTML = """<!doctype html>
 
     function sessionTitleFromPrompt(prompt) {
       const clean = prompt.replace(/\\s+/g, " ").trim().replace(/[.?!]+$/, "");
-      return clean ? clean.slice(0, 72) : "New RAG conversation";
+      return clean ? clean.slice(0, 72) : "Ultron Conversation";
     }
 
     function normalizedHistory(session) {
@@ -5060,7 +5457,7 @@ APP_HTML = """<!doctype html>
       return {
         ...(thread || createLocalThread(lastTurn.user_prompt || "")),
         session_id: (thread && thread.session_id) || (payload && payload.session_id) || clientId("chat"),
-        session_name: (thread && thread.session_name && thread.session_name !== "New RAG conversation")
+        session_name: (thread && thread.session_name && thread.session_name !== "Ultron Conversation" && thread.session_name !== "New RAG conversation")
           ? thread.session_name
           : (payload && payload.session_name) || sessionTitleFromPrompt(lastTurn.user_prompt || ""),
         user_agenda: (payload && payload.agenda_summary) || (thread && thread.user_agenda) || "",
@@ -5129,8 +5526,8 @@ APP_HTML = """<!doctype html>
     }
 
     function updateMobileHeader(statusText = "") {
-      const title = $("#currentSessionName") ? $("#currentSessionName").textContent.trim() : "New RAG conversation";
-      $("#mobileSessionName").textContent = title || "New RAG conversation";
+      const title = $("#currentSessionName") ? $("#currentSessionName").textContent.trim() : "Ultron Conversation";
+      $("#mobileSessionName").textContent = title || "Ultron Conversation";
       if (statusText) {
         $("#mobileStatusBadge").textContent = statusText;
       } else if (state.isGenerating) {
@@ -5424,11 +5821,16 @@ APP_HTML = """<!doctype html>
         return;
       }
       $("#sessionList").innerHTML = sessions.map((session) => `
-        <button class="session-card ${session.session_id === state.activeSessionId ? "active" : ""}" data-session="${escapeHtml(session.session_id)}">
-          <strong>${escapeHtml(session.session_name)}</strong>
-          <span>${session.exchange_count} exchanges - ${escapeHtml(formatDate(session.updated_at))}</span>
-          <span class="session-preview">${escapeHtml(session.last_prompt || session.user_agenda || "No preview yet.")}</span>
-        </button>
+        <div class="session-card-wrap">
+          <button class="session-card ${session.session_id === state.activeSessionId ? "active" : ""}" data-session="${escapeHtml(session.session_id)}">
+            <strong>${escapeHtml(session.session_name)}</strong>
+            <span>${session.exchange_count} exchanges · ${escapeHtml(formatDate(session.updated_at))}</span>
+            <span class="session-preview">${escapeHtml(session.last_prompt || session.user_agenda || "No preview yet.")}</span>
+          </button>
+          <button class="session-delete" data-delete-session="${escapeHtml(session.session_id)}" data-session-name="${escapeHtml(session.session_name)}" type="button" title="Delete chat permanently" aria-label="Delete chat ${escapeHtml(session.session_name)}">
+            <span class="material-symbols-outlined">delete</span>
+          </button>
+        </div>
       `).join("");
       $$("#sessionList .session-card").forEach((button) => {
         button.addEventListener("click", () => {
@@ -5436,6 +5838,41 @@ APP_HTML = """<!doctype html>
           loadSession(button.dataset.session);
         });
       });
+      $$("#sessionList .session-delete").forEach((button) => {
+        button.addEventListener("click", async (event) => {
+          event.stopPropagation();
+          await deleteSession(button.dataset.deleteSession, button.dataset.sessionName);
+        });
+      });
+    }
+
+    async function deleteSession(sessionId, sessionName) {
+      if (!sessionId) return;
+      const label = sessionName ? `"${sessionName}"` : "this chat";
+      const confirmed = window.confirm(`Permanently delete ${label}?\n\nThis removes the conversation from the database and cannot be undone.`);
+      if (!confirmed) return;
+      try {
+        if (state.currentUser) {
+          await apiFetch(`/api/chats/${encodeURIComponent(sessionId)}`, { method: "DELETE" });
+        }
+      } catch (error) {
+        if (error && error.status !== 404) {
+          alert(`Could not delete chat: ${error.message}`);
+          return;
+        }
+      }
+      // Remove locally regardless (also clears cached browser-side state)
+      try {
+        const local = readLocalChats().filter((s) => s.session_id !== sessionId);
+        writeLocalChats(local);
+      } catch (_e) {}
+      state.sessions = state.sessions.filter((s) => s.session_id !== sessionId);
+      if (state.activeSessionId === sessionId) {
+        state.activeSession = null;
+        state.activeSessionId = null;
+        renderSession(null);
+      }
+      renderSessionList();
     }
 
     async function loadSession(sessionId) {
@@ -5460,7 +5897,7 @@ APP_HTML = """<!doctype html>
       state.activeSessionId = session ? session.session_id : null;
       state.editingMessageId = null;
       if (normalizedSession) saveLocalSession(normalizedSession);
-      $("#currentSessionName").textContent = normalizedSession ? normalizedSession.session_name : "New RAG conversation";
+      $("#currentSessionName").textContent = normalizedSession ? normalizedSession.session_name : "Ultron Conversation";
       updateMobileHeader();
       $("#agendaSummary").textContent = normalizedSession && normalizedSession.user_agenda
         ? normalizedSession.user_agenda
@@ -5842,13 +6279,21 @@ APP_HTML = """<!doctype html>
     }
 
     function renderSuggestions(suggestions) {
+      const inlinePanel = $("#inlineSuggestions");
+      const inlineList = $("#inlineSuggestionList");
       if (!suggestions || !suggestions.length) {
         $("#suggestions").innerHTML = empty("Suggestions appear after an answer.");
+        if (inlinePanel) inlinePanel.hidden = true;
         return;
       }
-      $("#suggestions").innerHTML = suggestions.map((suggestion) => `
+      const html = suggestions.map((suggestion) => `
         <button class="suggestion-button" type="button">${escapeHtml(suggestion)}</button>
       `).join("");
+      $("#suggestions").innerHTML = html;
+      if (inlineList && inlinePanel) {
+        inlineList.innerHTML = html;
+        inlinePanel.hidden = false;
+      }
       bindPromptButtons();
     }
 
@@ -6086,7 +6531,7 @@ APP_HTML = """<!doctype html>
       $("#newSessionButton").disabled = true;
       try {
         const payload = state.currentUser
-          ? await apiFetch("/api/chats", { method: "POST", body: JSON.stringify({ session_name: "New RAG conversation" }) })
+          ? await apiFetch("/api/chats", { method: "POST", body: JSON.stringify({ session_name: "Ultron Conversation" }) })
           : null;
         renderSession(payload);
         await loadHistory();
@@ -6113,9 +6558,83 @@ APP_HTML = """<!doctype html>
       }
     });
 
+    const EVAL_METRIC_LABELS = {
+      answer_f1: "Answer F1",
+      context_recall: "Context Recall",
+      citation_hit_rate: "Citation Hit Rate",
+      confidence: "Confidence",
+      mean_answer_f1: "Mean Answer F1",
+      mean_context_recall: "Mean Context Recall",
+      mean_citation_hit_rate: "Mean Citation Hit Rate",
+      mean_confidence: "Mean Confidence"
+    };
+    const EVAL_HISTORY_KEY = "ultron_eval_history_v1";
+
+    function readEvalHistory() {
+      try {
+        const raw = JSON.parse(localStorage.getItem(EVAL_HISTORY_KEY) || "[]");
+        return Array.isArray(raw) ? raw : [];
+      } catch (_e) { return []; }
+    }
+    function pushEvalHistory(entry) {
+      const history = [...readEvalHistory(), entry].slice(-8);
+      try { localStorage.setItem(EVAL_HISTORY_KEY, JSON.stringify(history)); } catch (_e) {}
+      return history;
+    }
+
+    function renderEvalChart(summary) {
+      const chart = $("#evalChart");
+      if (!chart) return;
+      const numericEntries = Object.entries(summary || {})
+        .filter(([_k, v]) => typeof v === "number" && isFinite(v));
+      if (!numericEntries.length) { chart.innerHTML = ""; return; }
+      chart.innerHTML = numericEntries.map(([key, value]) => {
+        const label = EVAL_METRIC_LABELS[key] || key.replace(/_/g, " ");
+        const clamped = Math.max(0, Math.min(1, value));
+        const pct = Math.round(clamped * 100);
+        return `
+          <div class="eval-bar">
+            <span class="eval-bar-label">${escapeHtml(label)}</span>
+            <div class="eval-bar-track"><div class="eval-bar-fill" data-target="${pct}"></div></div>
+            <span class="eval-bar-value">${value.toFixed(3)}</span>
+          </div>
+        `;
+      }).join("");
+      // Animate fills in the next frame so the transition triggers.
+      requestAnimationFrame(() => {
+        $$("#evalChart .eval-bar-fill").forEach((bar) => {
+          const pct = Number(bar.dataset.target || 0);
+          bar.style.width = pct + "%";
+        });
+      });
+    }
+
+    function renderEvalHistory() {
+      const wrap = $("#evalHistory");
+      if (!wrap) return;
+      const history = readEvalHistory();
+      if (!history.length) { wrap.innerHTML = ""; return; }
+      wrap.innerHTML = history.map((entry, idx) => {
+        const mean = (entry.mean_answer_f1 || 0 + entry.mean_context_recall || 0 + entry.mean_confidence || 0) / 3;
+        const height = Math.max(6, Math.min(96, Math.round((entry.score || mean) * 92)));
+        const stamp = new Date(entry.ts || Date.now()).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+        return `
+          <div class="eval-history-bar" title="Run ${idx + 1} - score ${(entry.score || 0).toFixed(3)}">
+            <span class="tip">Run ${idx + 1} - ${(entry.score || 0).toFixed(3)}</span>
+            <div class="bar" style="height:${height}px"></div>
+            <span class="label">${escapeHtml(stamp)}</span>
+          </div>
+        `;
+      }).join("");
+    }
+
+    renderEvalHistory();
+
     $("#runEval").addEventListener("click", async () => {
       $("#runEval").disabled = true;
       $("#evalSummary").innerHTML = badge("running");
+      const statusEl = $("#evalRunStatus");
+      if (statusEl) statusEl.textContent = "Evaluating golden set...";
       try {
         const response = await fetch("/api/evaluate", {
           method: "POST",
@@ -6129,7 +6648,23 @@ APP_HTML = """<!doctype html>
         });
         const payload = await response.json();
         $("#evalSummary").innerHTML = Object.entries(payload.summary)
-          .map(([key, value]) => badge(`${key}: ${value}`)).join("");
+          .map(([key, value]) => {
+            const label = EVAL_METRIC_LABELS[key] || key.replace(/_/g, " ");
+            const display = typeof value === "number" ? value.toFixed(3) : String(value);
+            const kind = (typeof value === "number" && value >= 0.7) ? "good" : (typeof value === "number" && value < 0.4 ? "warn" : "");
+            return badge(`${label}: ${display}`, kind);
+          }).join("");
+        renderEvalChart(payload.summary);
+        const meanScore = (payload.summary.mean_answer_f1 + payload.summary.mean_context_recall + payload.summary.mean_confidence) / 3;
+        pushEvalHistory({
+          ts: Date.now(),
+          score: meanScore || 0,
+          mean_answer_f1: payload.summary.mean_answer_f1,
+          mean_context_recall: payload.summary.mean_context_recall,
+          mean_citation_hit_rate: payload.summary.mean_citation_hit_rate,
+          mean_confidence: payload.summary.mean_confidence
+        });
+        renderEvalHistory();
         $("#evalRows").innerHTML = `
           <table class="table responsive-table">
             <thead><tr><th>Sample</th><th>Answer F1</th><th>Context Recall</th><th>Citation Hit Rate</th><th>Confidence</th></tr></thead>
@@ -6146,6 +6681,10 @@ APP_HTML = """<!doctype html>
             </tbody>
           </table>
         `;
+        if (statusEl) statusEl.textContent = `Run complete at ${new Date().toLocaleTimeString()}.`;
+      } catch (error) {
+        $("#evalSummary").innerHTML = badge(`error: ${error.message || error}`, "bad");
+        if (statusEl) statusEl.textContent = "";
       } finally {
         $("#runEval").disabled = false;
       }
@@ -6318,7 +6857,7 @@ def auth_signup(payload: AuthSignupRequest, response: Response) -> AuthResponse:
     return AuthResponse(
         authenticated=True,
         user=_public_user(user),
-        message="Account created. Welcome to Agentic RAG.",
+        message="Account created. Welcome to Ultron.",
     )
 
 
