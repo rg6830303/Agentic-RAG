@@ -1267,8 +1267,12 @@ class AccountStore:
 
     def _connect(self) -> Any:
         if self.is_postgres:
+            url = self.database_url
+            if "connect_timeout" not in url:
+                sep = "&" if "?" in url else "?"
+                url = f"{url}{sep}connect_timeout=8"
             return self._psycopg.connect(
-                self.database_url,
+                url,
                 autocommit=True,
                 row_factory=self._dict_row,
             )
@@ -5917,7 +5921,7 @@ APP_HTML = """<!doctype html>
       }
       showAuthenticatedApp(payload.user);
       await loadRuntime();
-      renderSessionList();
+      await loadHistory();
     }
 
     async function submitAuthForm(event) {
@@ -5939,11 +5943,16 @@ APP_HTML = """<!doctype html>
           method: "POST",
           body: JSON.stringify(body)
         });
-        const verifiedUser = await verifyAuthenticatedSession();
-        showAuthenticatedApp(verifiedUser || payload.user);
+        let authedUser = payload.user;
+        try {
+          authedUser = await verifyAuthenticatedSession() || payload.user;
+        } catch (_verifyError) {
+          // Cookie verification is best-effort; the login response is already trusted.
+        }
+        showAuthenticatedApp(authedUser);
         await loadRuntime();
         renderSession(null);
-        renderSessionList();
+        await loadHistory();
         $("#question").focus();
       } catch (error) {
         setAuthMessage(error.message);
