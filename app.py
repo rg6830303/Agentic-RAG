@@ -3165,6 +3165,7 @@ APP_HTML = """<!doctype html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Advanced Agentic RAG interface for Ultron autonomous RAG intelligence">
   <title>Ultron — Autonomous RAG Intelligence</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -3760,8 +3761,8 @@ APP_HTML = """<!doctype html>
       height: 100%;
       min-height: 0;
       display: grid;
-      grid-template-rows: auto minmax(0, 1fr) auto auto;
-      gap: 14px;
+      grid-template-rows: auto minmax(220px, 1fr) auto auto;
+      gap: 10px;
       overflow: hidden;
     }
     .conversation-head {
@@ -3770,7 +3771,7 @@ APP_HTML = """<!doctype html>
       gap: 14px;
       align-items: start;
       border-bottom: 1px solid var(--line-soft);
-      padding-bottom: 16px;
+      padding-bottom: 12px;
     }
     .eyebrow {
       color: var(--cyan);
@@ -3792,7 +3793,7 @@ APP_HTML = """<!doctype html>
     }
     .message-list {
       display: grid;
-      gap: 14px;
+      gap: 12px;
       align-content: start;
       overflow-y: auto;
       overflow-x: hidden;
@@ -3800,6 +3801,7 @@ APP_HTML = """<!doctype html>
       padding: 8px 8px 10px 4px;
       scroll-behavior: smooth;
       overscroll-behavior: contain;
+      scrollbar-gutter: stable;
     }
     /* Subtle red scrollbar that matches the Ultron palette */
     .message-list::-webkit-scrollbar,
@@ -3925,11 +3927,11 @@ APP_HTML = """<!doctype html>
     }
     .composer {
       display: grid;
-      gap: 14px;
+      gap: 10px;
       border: 1px solid var(--line-soft);
-      border-top: 2px solid rgba(56, 189, 248, 0.52);
-      border-radius: 12px;
-      padding: 14px;
+      border-top: 1px solid rgba(56, 189, 248, 0.52);
+      border-radius: 10px;
+      padding: 12px;
       background: linear-gradient(180deg, rgba(8, 23, 42, 0.78), rgba(5, 15, 31, 0.72));
       box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
     }
@@ -3938,7 +3940,8 @@ APP_HTML = """<!doctype html>
       box-shadow: 0 0 0 3px rgba(45, 212, 191, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.04);
     }
     .composer textarea {
-      min-height: 118px;
+      min-height: 82px;
+      max-height: 26dvh;
       resize: vertical;
       border-radius: 10px;
       font-size: 15px;
@@ -3946,19 +3949,19 @@ APP_HTML = """<!doctype html>
     .composer textarea::placeholder { color: #7896b5; }
     .composer-options {
       display: grid;
-      gap: 12px;
+      gap: 8px;
     }
     .composer-options > summary {
-      display: none;
+      display: flex;
       list-style: none;
       cursor: pointer;
       color: var(--soft);
       font-weight: 900;
-      min-height: 44px;
+      min-height: 36px;
       align-items: center;
       justify-content: space-between;
       gap: 10px;
-      padding: 10px 12px;
+      padding: 8px 10px;
       border: 1px solid var(--line-soft);
       border-radius: 8px;
       background: rgba(9, 26, 49, 0.82);
@@ -3971,8 +3974,20 @@ APP_HTML = """<!doctype html>
       transition: transform 0.16s ease;
     }
     .composer-options[open] > summary:after { transform: rotate(180deg); }
+    .composer-options:not([open]) .control-grid,
+    .composer-options:not([open]) .switch-row { display: none; }
+    .settings-summary {
+      margin-left: auto;
+      min-width: 0;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 800;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
     .composer-status {
-      min-height: 42px;
+      min-height: 24px;
       display: inline-flex;
       align-items: center;
       color: var(--muted);
@@ -4054,12 +4069,12 @@ APP_HTML = """<!doctype html>
     .suggestion-button:hover::before { transform: translateX(3px); }
     .suggestion-button:active { transform: translateX(1px) scale(0.99); }
     .inline-suggestions {
-      padding: 8px 10px;
+      padding: 6px 8px;
       animation: ultronFadeIn 280ms cubic-bezier(0.2, 0.8, 0.2, 1);
       display: flex;
       align-items: center;
-      gap: 10px;
-      max-height: 56px;
+      gap: 8px;
+      max-height: 44px;
       flex-shrink: 0;
     }
     .inline-suggestions[hidden] { display: none; }
@@ -4068,7 +4083,7 @@ APP_HTML = """<!doctype html>
       align-items: center;
       gap: 6px;
       color: var(--crimson-soft);
-      font-size: 10.5px;
+      font-size: 10px;
       font-weight: 800;
       letter-spacing: 0.6px;
       text-transform: uppercase;
@@ -4090,9 +4105,9 @@ APP_HTML = """<!doctype html>
     .inline-suggestion-list::-webkit-scrollbar { height: 4px; }
     .inline-suggestion-list .suggestion-button {
       flex: 0 0 auto;
-      max-width: 260px;
-      padding: 6px 10px;
-      font-size: 12px;
+      max-width: 220px;
+      padding: 5px 9px;
+      font-size: 11.5px;
       line-height: 1.25;
       border-radius: 999px;
       white-space: nowrap;
@@ -4213,20 +4228,21 @@ APP_HTML = """<!doctype html>
       background: #0a2043;
       box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.1);
     }
-    .control-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-    .switch-row { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
+    .control-grid { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(90px, 0.28fr); gap: 8px; }
+    .switch-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px; }
     .switch {
       display: flex;
       align-items: center;
       gap: 8px;
-      min-height: 40px;
+      min-height: 34px;
       color: var(--soft);
       border: 1px solid var(--line-soft);
       border-radius: 8px;
-      padding: 9px 10px;
+      padding: 7px 9px;
       background: rgba(8, 23, 42, 0.58);
+      font-size: 12.5px;
     }
-    .switch input { width: 18px; height: 18px; accent-color: var(--cyan); }
+    .switch input { width: 16px; height: 16px; accent-color: var(--cyan); }
     .actions { display: flex; gap: 10px; flex-wrap: wrap; }
     button.primary, button.secondary, .hitl-btn {
       border-radius: 8px;
@@ -4774,9 +4790,9 @@ APP_HTML = """<!doctype html>
         <h1>Ultron</h1>
         <p>Sign in to keep your Ultron RAG conversations, memory, citations, and live web sources isolated to your account.</p>
       </div>
-      <div class="auth-tabs" role="tablist" aria-label="Authentication">
+      <div class="auth-tabs" id="authModeSwitch" role="tablist" aria-label="Authentication">
         <button class="auth-tab active" id="loginTab" type="button" role="tab" aria-selected="true" data-auth-mode="login">Login</button>
-        <button class="auth-tab" id="signupTab" type="button" role="tab" aria-selected="false" data-auth-mode="signup">Sign Up</button>
+        <button class="auth-tab" id="signupTab" type="button" role="tab" aria-selected="false" data-auth-mode="signup" aria-label="Create an account">Sign Up</button>
       </div>
       <form class="auth-form" id="authForm" data-auth-mode="login" novalidate>
         <label>Email
@@ -4913,8 +4929,11 @@ APP_HTML = """<!doctype html>
                 Message
                 <textarea id="question" placeholder="Ask about the deployed corpus, compare sources, or search Wikipedia-backed knowledge" aria-label="Message prompt"></textarea>
               </label>
-              <details class="composer-options" id="composerOptions" open>
-                <summary>Retrieval settings</summary>
+              <details class="composer-options" id="composerOptions">
+                <summary>
+                  <span>Retrieval settings</span>
+                  <span class="settings-summary" id="settingsSummary">Hybrid | K=5</span>
+                </summary>
                 <div class="control-grid">
                   <label>Retrieval mode
                     <select id="retrievalMode">
@@ -5584,6 +5603,22 @@ APP_HTML = """<!doctype html>
       };
     }
 
+    function updateSettingsSummary() {
+      const target = $("#settingsSummary");
+      if (!target) return;
+      const modeSelect = $("#retrievalMode");
+      const mode = modeSelect && modeSelect.selectedOptions && modeSelect.selectedOptions.length
+        ? modeSelect.selectedOptions[0].textContent
+        : (modeSelect ? modeSelect.value : "Hybrid");
+      const bits = [
+        mode || "Hybrid",
+        `K=${$("#topK") ? $("#topK").value || "5" : "5"}`
+      ];
+      if ($("#useReranking") && $("#useReranking").checked) bits.push("rerank");
+      if ($("#useWikipedia") && $("#useWikipedia").checked) bits.push("wiki");
+      target.textContent = bits.join(" | ");
+    }
+
     function isCompactLayout() {
       return window.matchMedia && window.matchMedia("(max-width: 1024px)").matches;
     }
@@ -5617,7 +5652,7 @@ APP_HTML = """<!doctype html>
     function syncResponsivePanels() {
       const compact = isCompactLayout();
       const options = $("#composerOptions");
-      if (options && !options.dataset.touched) options.open = !compact;
+      if (options && !options.dataset.touched) options.open = false;
       $$(".insight-panel").forEach((panel, index) => {
         if (!panel.dataset.touched) panel.open = !compact || index < 2;
       });
@@ -6357,7 +6392,9 @@ APP_HTML = """<!doctype html>
       `).join("");
       $("#suggestions").innerHTML = html;
       if (inlineList && inlinePanel) {
-        inlineList.innerHTML = html;
+        inlineList.innerHTML = suggestions.slice(0, 3).map((suggestion) => `
+          <button class="suggestion-button" type="button">${escapeHtml(suggestion)}</button>
+        `).join("");
         inlinePanel.hidden = false;
       }
       bindPromptButtons();
@@ -6586,6 +6623,24 @@ APP_HTML = """<!doctype html>
       $("#question").value = "";
       $("#question").focus();
     });
+
+    [
+      "#retrievalMode",
+      "#topK",
+      "#useGeneration",
+      "#useReranking",
+      "#selfRag",
+      "#useWikipedia",
+      "#sentenceAttention",
+      "#contextReview",
+      "#finalApproval"
+    ].forEach((selector) => {
+      const field = $(selector);
+      if (!field) return;
+      field.addEventListener("change", updateSettingsSummary);
+      field.addEventListener("input", updateSettingsSummary);
+    });
+    updateSettingsSummary();
 
     $("#chatSearch").addEventListener("input", (event) => {
       state.chatSearch = event.target.value;
