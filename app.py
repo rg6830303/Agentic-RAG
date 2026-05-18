@@ -467,13 +467,31 @@ _DB_URL_ENV_ALIASES = (
     "PG_DATABASE_URL",
 )
 
+# Neon's Vercel integration prefixes all vars with the database/project name
+# (e.g. "skywalker_DATABASE_URL"). Prefer unpooled/direct URLs for reliability.
+_DB_URL_SUFFIXES = (
+    "_DATABASE_URL_UNPOOLED",
+    "_DATABASE_URL_NON_POOLING",
+    "_DATABASE_URL",
+    "_POSTGRES_URL_NON_POOLING",
+    "_POSTGRES_URL_NO_SSL",
+    "_POSTGRES_URL",
+    "_POSTGRES_PRISMA_URL",
+)
+
 
 def _resolve_database_url() -> str | None:
-    """Check DATABASE_URL and Vercel/Neon Postgres integration aliases."""
+    """Resolve a Postgres URL from env, checking standard names then Neon-prefixed aliases."""
     for key in _DB_URL_ENV_ALIASES:
         val = os.getenv(key)
         if val:
             return val
+    # Dynamic scan: Neon integration injects vars like skywalker_DATABASE_URL
+    env_items = list(os.environ.items())
+    for suffix in _DB_URL_SUFFIXES:
+        for key, val in env_items:
+            if key.endswith(suffix) and val and val.startswith(("postgres://", "postgresql://")):
+                return val
     return None
 
 
