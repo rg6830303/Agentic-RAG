@@ -3203,12 +3203,14 @@ APP_HTML = """<!doctype html>
       --shadow-soft: 0 14px 38px rgba(0, 0, 0, 0.42);
     }
     * { box-sizing: border-box; }
-    html { width: 100%; overflow-x: hidden; }
+    html, body { height: 100%; width: 100%; }
+    html { overflow: hidden; }
     body {
       margin: 0;
-      min-height: 100vh;
-      width: 100%;
-      overflow-x: hidden;
+      height: 100dvh;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
       font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       color: var(--ink);
       background:
@@ -3218,6 +3220,10 @@ APP_HTML = """<!doctype html>
         linear-gradient(135deg, #06070d 0%, #0a1124 55%, #050912 100%);
       letter-spacing: 0;
       position: relative;
+    }
+    body.auth-required {
+      display: grid;
+      place-items: stretch;
     }
     body::before {
       content: "";
@@ -3416,18 +3422,18 @@ APP_HTML = """<!doctype html>
       -webkit-font-smoothing: antialiased;
     }
     .mobile-topbar {
-      position: sticky;
-      top: 0;
+      position: relative;
+      flex-shrink: 0;
       z-index: 70;
       min-height: 62px;
       padding: 10px 14px;
       padding-top: max(10px, env(safe-area-inset-top));
       align-items: center;
       gap: 12px;
-      border-bottom: 1px solid var(--line-soft);
-      background: rgba(1, 15, 31, 0.92);
+      border-bottom: 1px solid rgba(209, 31, 44, 0.22);
+      background: rgba(6, 7, 13, 0.92);
       backdrop-filter: blur(18px);
-      box-shadow: 0 14px 34px rgba(0, 0, 0, 0.24);
+      box-shadow: 0 14px 34px rgba(0, 0, 0, 0.42);
     }
     .mobile-title {
       min-width: 0;
@@ -3459,10 +3465,12 @@ APP_HTML = """<!doctype html>
       pointer-events: auto;
     }
     .shell {
-      min-height: 100vh;
+      flex: 1;
+      min-height: 0;
+      min-width: 0;
       display: grid;
       grid-template-columns: 320px minmax(0, 1fr);
-      min-width: 0;
+      overflow: hidden;
     }
     aside {
       padding: 22px;
@@ -3470,10 +3478,10 @@ APP_HTML = """<!doctype html>
       background:
         radial-gradient(circle at 0% 0%, rgba(209, 31, 44, 0.12), transparent 18rem),
         linear-gradient(180deg, rgba(6, 7, 13, 0.98), rgba(10, 17, 36, 0.96));
-      position: sticky;
-      top: 0;
-      height: 100vh;
-      overflow: auto;
+      height: 100%;
+      overflow-y: auto;
+      overflow-x: hidden;
+      overscroll-behavior: contain;
     }
     .drawer-head {
       display: none;
@@ -3489,7 +3497,19 @@ APP_HTML = """<!doctype html>
       display: grid;
       gap: 18px;
       min-width: 0;
+      height: 100%;
+      overflow-y: auto;
+      overflow-x: hidden;
+      overscroll-behavior: contain;
     }
+    /* Chat tab uses the full main height with internal-only scroll on messages */
+    #chat.section.active {
+      height: 100%;
+      min-height: 0;
+      grid-template-rows: minmax(0, 1fr);
+    }
+    #chat .chat-grid { height: 100%; min-height: 0; }
+    main.chat-active { overflow: hidden; }
     .brand { display: grid; gap: 10px; margin-bottom: 18px; }
     .brand h1 { font-size: 30px; line-height: 1.08; }
     .brand p { color: var(--muted); line-height: 1.45; }
@@ -3737,10 +3757,12 @@ APP_HTML = """<!doctype html>
       color: rgba(190, 200, 210, 0.78);
     }
     .conversation-panel {
-      min-height: calc(100vh - 48px);
+      height: 100%;
+      min-height: 0;
       display: grid;
-      grid-template-rows: auto minmax(360px, 1fr) auto;
+      grid-template-rows: auto minmax(0, 1fr) auto auto;
       gap: 14px;
+      overflow: hidden;
     }
     .conversation-head {
       display: flex;
@@ -3772,10 +3794,27 @@ APP_HTML = """<!doctype html>
       display: grid;
       gap: 14px;
       align-content: start;
-      overflow: auto;
-      padding: 8px 8px 10px 0;
+      overflow-y: auto;
+      overflow-x: hidden;
+      min-height: 0;
+      padding: 8px 8px 10px 4px;
       scroll-behavior: smooth;
+      overscroll-behavior: contain;
     }
+    /* Subtle red scrollbar that matches the Ultron palette */
+    .message-list::-webkit-scrollbar,
+    aside::-webkit-scrollbar,
+    main::-webkit-scrollbar { width: 8px; height: 8px; }
+    .message-list::-webkit-scrollbar-track,
+    aside::-webkit-scrollbar-track,
+    main::-webkit-scrollbar-track { background: transparent; }
+    .message-list::-webkit-scrollbar-thumb,
+    aside::-webkit-scrollbar-thumb,
+    main::-webkit-scrollbar-thumb {
+      background: linear-gradient(180deg, rgba(209, 31, 44, 0.55), rgba(43, 109, 255, 0.45));
+      border-radius: 999px;
+    }
+    .message-list, aside, main { scrollbar-color: rgba(209, 31, 44, 0.55) transparent; scrollbar-width: thin; }
     .message-row {
       display: flex;
       width: 100%;
@@ -4421,10 +4460,9 @@ APP_HTML = """<!doctype html>
     }
     @media (max-width: 1024px) {
       .desktop-hidden { display: flex !important; }
-      body.drawer-open { overflow: hidden; }
+      .mobile-topbar { position: static; flex-shrink: 0; }
       .shell {
         grid-template-columns: minmax(0, 1fr);
-        min-height: calc(100vh - 62px);
       }
       aside {
         position: fixed;
@@ -4432,11 +4470,11 @@ APP_HTML = """<!doctype html>
         z-index: 90;
         width: min(86vw, 350px);
         height: 100dvh;
-        border-right: 1px solid var(--line-soft);
+        border-right: 1px solid rgba(209, 31, 44, 0.32);
         border-bottom: 0;
         transform: translateX(-102%);
-        transition: transform 0.2s ease;
-        box-shadow: 28px 0 72px rgba(0, 0, 0, 0.44);
+        transition: transform 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+        box-shadow: 28px 0 72px rgba(0, 0, 0, 0.62);
         padding: 16px;
         padding-top: max(16px, env(safe-area-inset-top));
       }
@@ -4445,8 +4483,8 @@ APP_HTML = """<!doctype html>
       .brand h1 { font-size: 24px; }
       .brand p { font-size: 13px; }
       main {
-        padding: 16px;
-        padding-bottom: max(16px, env(safe-area-inset-bottom));
+        padding: 14px;
+        padding-bottom: max(14px, env(safe-area-inset-bottom));
       }
       .workspace, .chat-grid, .subgrid { grid-template-columns: minmax(0, 1fr); }
       .insight-stack {
@@ -4455,18 +4493,18 @@ APP_HTML = """<!doctype html>
         max-height: none;
         overflow: visible;
       }
+      #chat.section.active { grid-template-rows: minmax(0, 1fr); }
       .conversation-panel {
-        min-height: calc(100dvh - 94px);
-        grid-template-rows: minmax(260px, 1fr) auto;
+        height: 100%;
+        min-height: 0;
+        grid-template-rows: minmax(0, 1fr) auto auto;
+        gap: 10px;
       }
       .conversation-panel > .conversation-head { display: none; }
-      .panel.pad { padding: 16px; }
+      .panel.pad { padding: 14px; }
       .flow { grid-template-columns: minmax(0, 1fr); }
       .node:after { display: none; }
       .composer {
-        position: sticky;
-        bottom: max(10px, env(safe-area-inset-bottom));
-        z-index: 30;
         gap: 10px;
         padding: 12px;
         border-radius: 16px;
@@ -4503,11 +4541,7 @@ APP_HTML = """<!doctype html>
       main { padding: 12px; }
       .section.active { gap: 12px; }
       .panel { border-radius: 10px; box-shadow: var(--shadow-soft); }
-      .message-list {
-        min-height: clamp(240px, calc(100dvh - 400px), 580px);
-        max-height: none;
-        padding: 4px 0 8px;
-      }
+      .message-list { padding: 4px 0 8px; }
       .message-row.user .message { border-top-right-radius: 6px; }
       .message-row.assistant .message { border-top-left-radius: 6px; }
       .message {
@@ -4652,7 +4686,7 @@ APP_HTML = """<!doctype html>
       aside { width: min(92vw, 340px); }
       main { padding: 10px; }
       .panel.pad { padding: 14px; }
-      .message-list { min-height: clamp(220px, calc(100dvh - 390px), 440px); }
+      .message-list { padding: 4px 0 6px; }
       .message {
         max-width: 100%;
         font-size: 13.5px;
@@ -4810,7 +4844,7 @@ APP_HTML = """<!doctype html>
         </div>
       </section>
     </aside>
-    <main>
+    <main class="chat-active">
       <section id="chat" class="section active">
         <div class="chat-grid">
           <section class="panel pad conversation-panel">
@@ -5594,7 +5628,10 @@ APP_HTML = """<!doctype html>
       $$(".tab").forEach((item) => item.classList.remove("active"));
       $$(".section").forEach((item) => item.classList.remove("active"));
       button.classList.add("active");
-      document.getElementById(button.dataset.tab).classList.add("active");
+      const tabId = button.dataset.tab;
+      document.getElementById(tabId).classList.add("active");
+      // Toggle a marker on <main> so we can opt out of main-level scroll when chat is active.
+      document.querySelector("main").classList.toggle("chat-active", tabId === "chat");
       closeDrawer();
     }
 
