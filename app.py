@@ -3126,6 +3126,7 @@ APP_HTML = """<!doctype html>
     }
     .auth-form { display: grid; gap: 12px; }
     .auth-form [hidden] { display: none !important; }
+    #authForm[data-auth-mode="login"] .signup-only { display: none; }
     .auth-form label,
     .account-card {
       display: grid;
@@ -3156,22 +3157,6 @@ APP_HTML = """<!doctype html>
       padding: 10px 12px;
     }
     .auth-config[hidden] { display: none; }
-    .auth-switch {
-      margin-top: -4px;
-      color: var(--muted);
-      font-size: 13px;
-      text-align: center;
-    }
-    .auth-switch button {
-      min-height: 32px;
-      border: 0;
-      background: transparent;
-      color: var(--cyan);
-      cursor: pointer;
-      font-weight: 800;
-      padding: 0 4px;
-    }
-    .auth-switch button:hover { text-decoration: underline; }
     .account-card {
       margin-top: 14px;
       padding: 12px;
@@ -4314,28 +4299,21 @@ APP_HTML = """<!doctype html>
       </div>
       <div class="auth-tabs" role="tablist" aria-label="Authentication">
         <button class="auth-tab active" id="loginTab" type="button" role="tab" aria-selected="true" data-auth-mode="login">Login</button>
-        <button class="auth-tab" id="signupTab" type="button" role="tab" aria-selected="false" data-auth-mode="signup">Sign up</button>
+        <button class="auth-tab" id="signupTab" type="button" role="tab" aria-selected="false" data-auth-mode="signup">Sign Up</button>
       </div>
       <form class="auth-form" id="authForm" data-auth-mode="login" novalidate>
-        <label id="displayNameLabel" hidden>Name
-          <input id="authName" autocomplete="name" placeholder="Your name">
-        </label>
         <label>Email
           <input id="authEmail" type="email" autocomplete="email" placeholder="you@example.com" required>
         </label>
         <label>Password
           <input id="authPassword" type="password" autocomplete="current-password" placeholder="At least 8 characters" required>
         </label>
-        <label id="confirmPasswordLabel" hidden>Confirm password
+        <label class="signup-only">Confirm password
           <input id="authPasswordConfirm" type="password" autocomplete="new-password" placeholder="Repeat password">
         </label>
         <button class="primary" id="authSubmit" type="submit">Login</button>
         <p class="auth-config" id="authConfigNotice" hidden></p>
         <p class="auth-error" id="authError" aria-live="polite"></p>
-        <p class="auth-switch" id="authSwitchText">
-          <span id="authSwitchLead">New here?</span>
-          <button id="authModeSwitch" type="button">Create an account</button>
-        </p>
       </form>
     </div>
   </section>
@@ -4668,19 +4646,14 @@ APP_HTML = """<!doctype html>
       state.authMode = nextMode;
       const form = $("#authForm");
       if (form) form.dataset.authMode = nextMode;
-      $$(".auth-tab").forEach((button) => {
-        const active = button.dataset.authMode === nextMode;
-        button.classList.toggle("active", active);
-        button.setAttribute("aria-selected", active ? "true" : "false");
+      $$(".auth-tab").forEach((btn) => {
+        const active = btn.dataset.authMode === nextMode;
+        btn.classList.toggle("active", active);
+        btn.setAttribute("aria-selected", String(active));
       });
-      setVisible($("#displayNameLabel"), nextMode === "signup");
-      setVisible($("#confirmPasswordLabel"), nextMode === "signup");
       $("#authSubmit").textContent = nextMode === "signup" ? "Sign Up" : "Login";
       $("#authPassword").setAttribute("autocomplete", nextMode === "signup" ? "new-password" : "current-password");
-      $("#authPasswordConfirm").required = nextMode === "signup";
       if (nextMode !== "signup") $("#authPasswordConfirm").value = "";
-      $("#authSwitchLead").textContent = nextMode === "signup" ? "Already have an account?" : "Don't have an account?";
-      $("#authModeSwitch").textContent = nextMode === "signup" ? "Log in" : "Create account";
       setAuthMessage(state.authNotice, state.authNotice ? "warn" : "");
       validateAuthForm();
     }
@@ -4733,7 +4706,8 @@ APP_HTML = """<!doctype html>
       if (!password) return "Enter your password.";
       if (state.authMode === "signup") {
         if (password.length < 8) return "Password must be at least 8 characters.";
-        if (confirm !== password) return "Passwords must match.";
+        if (!confirm) return "Please confirm your password.";
+        if (confirm !== password) return "Passwords do not match.";
       }
       return "";
     }
@@ -5929,27 +5903,36 @@ APP_HTML = """<!doctype html>
       if (state.authLoading || !validateAuthForm({ showMessage: true })) return;
       state.authLoading = true;
       $("#authSubmit").disabled = true;
-      $("#authSubmit").textContent = state.authMode === "signup" ? "Creating..." : "Signing in...";
+      const isSignup = state.authMode === "signup";
+      $("#authSubmit").textContent = isSignup ? "Creating account..." : "Signing in...";
       setAuthMessage("");
       try {
-        const body = {
-          email: $("#authEmail").value.trim(),
-          password: $("#authPassword").value
-        };
-        if (state.authMode === "signup") {
-          body.display_name = $("#authName").value.trim();
-        }
-        const payload = await apiFetch(state.authMode === "signup" ? "/api/auth/signup" : "/api/auth/login", {
+        const email = $("#authEmail").value.trim();
+        const body = { email, password: $("#authPassword").value };
+        await apiFetch(isSignup ? "/api/auth/signup" : "/api/auth/login", {
           method: "POST",
           body: JSON.stringify(body)
         });
-        let authedUser = payload.user;
-        try {
-          authedUser = await verifyAuthenticatedSession() || payload.user;
-        } catch (_verifyError) {
-          // Cookie verification is best-effort; the login response is already trusted.
+        if (isSignup) {
+          setAuthMode("login");
+          $("#authEmail").value = email;
+          $("#authPassword").value = "";
+          setAuthMessage("Account created! Sign in with your new credentials.", "success");
+          return;
         }
-        showAuthenticatedApp(authedUser);
+        let user = null;
+        try {
+          const verified = await verifyAuthenticatedSession();
+          user = verified;
+        } catch (_verifyError) {
+          // best-effort; apiFetch already returned 200 so session cookie is set
+        }
+        if (!user) {
+          const me = await apiFetch("/api/auth/me");
+          user = me.user || null;
+        }
+        if (!user) throw new Error("Login succeeded but could not load your account. Please try again.");
+        showAuthenticatedApp(user);
         await loadRuntime();
         renderSession(null);
         await loadHistory();
@@ -5963,24 +5946,17 @@ APP_HTML = """<!doctype html>
 
     function initializeAuthUi() {
       const form = $("#authForm");
-      const switchButton = $("#authModeSwitch");
-      $$(".auth-tab").forEach((button) => {
-        button.addEventListener("click", () => {
-          setAuthMode(button.dataset.authMode);
+      $$(".auth-tab").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          setAuthMode(btn.dataset.authMode);
           $("#authEmail").focus();
         });
       });
-      switchButton.addEventListener("click", () => {
-        setAuthMode(state.authMode === "signup" ? "login" : "signup");
-        $("#authEmail").focus();
-      });
-      ["#authName", "#authEmail", "#authPassword", "#authPasswordConfirm"].forEach((selector) => {
+      ["#authEmail", "#authPassword", "#authPasswordConfirm"].forEach((selector) => {
         const field = $(selector);
+        if (!field) return;
         field.addEventListener("input", () => {
-          if (!state.authLoading) {
-            state.authNotice = "";
-            setAuthMessage("");
-          }
+          if (!state.authLoading) { state.authNotice = ""; setAuthMessage(""); }
           validateAuthForm();
         });
         field.addEventListener("change", () => validateAuthForm());
