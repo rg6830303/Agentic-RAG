@@ -4973,7 +4973,7 @@ APP_HTML = """<!doctype html>
         });
       }
       if (currentPrompt) parts.push(`Current prompt: ${compactClientText(currentPrompt, 500)}`);
-      return compactClientText(parts.join("\n"), 3800);
+      return compactClientText(parts.join("\\n"), 3800);
     }
 
     function buildClientMemorySummary(history) {
