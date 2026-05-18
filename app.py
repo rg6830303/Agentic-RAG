@@ -4054,28 +4054,57 @@ APP_HTML = """<!doctype html>
     .suggestion-button:hover::before { transform: translateX(3px); }
     .suggestion-button:active { transform: translateX(1px) scale(0.99); }
     .inline-suggestions {
-      padding: 14px 16px;
+      padding: 8px 10px;
       animation: ultronFadeIn 280ms cubic-bezier(0.2, 0.8, 0.2, 1);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      max-height: 56px;
+      flex-shrink: 0;
     }
     .inline-suggestions[hidden] { display: none; }
     .inline-suggestions-head {
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 6px;
       color: var(--crimson-soft);
-      font-size: 12px;
+      font-size: 10.5px;
       font-weight: 800;
       letter-spacing: 0.6px;
       text-transform: uppercase;
-      margin-bottom: 10px;
+      flex-shrink: 0;
+      white-space: nowrap;
     }
-    .inline-suggestions-head .material-symbols-outlined { font-size: 18px; }
+    .inline-suggestions-head .material-symbols-outlined { font-size: 16px; }
     .inline-suggestion-list {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-      gap: 8px;
+      display: flex;
+      gap: 6px;
+      overflow-x: auto;
+      overflow-y: hidden;
+      flex: 1;
+      min-width: 0;
+      scrollbar-width: thin;
+      -webkit-overflow-scrolling: touch;
+      padding-bottom: 2px;
     }
-    .inline-suggestion-list .suggestion-button { padding: 10px 12px; font-size: 13px; }
+    .inline-suggestion-list::-webkit-scrollbar { height: 4px; }
+    .inline-suggestion-list .suggestion-button {
+      flex: 0 0 auto;
+      max-width: 260px;
+      padding: 6px 10px;
+      font-size: 12px;
+      line-height: 1.25;
+      border-radius: 999px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .inline-suggestion-list .suggestion-button::before { display: none; }
+    @media (max-width: 768px) {
+      .inline-suggestions { padding: 6px 8px; max-height: 48px; }
+      .inline-suggestions-head span:not(.material-symbols-outlined) { display: none; }
+      .inline-suggestion-list .suggestion-button { max-width: 200px; font-size: 11.5px; padding: 5px 9px; }
+    }
     .eval-chart {
       display: grid;
       gap: 14px;
