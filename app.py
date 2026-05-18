@@ -4542,8 +4542,8 @@ APP_HTML = """<!doctype html>
       .brand h1 { font-size: 24px; }
       .brand p { font-size: 13px; }
       main {
-        padding: 14px;
-        padding-bottom: max(14px, env(safe-area-inset-bottom));
+        padding: 10px;
+        padding-bottom: max(10px, env(safe-area-inset-bottom));
       }
       .workspace, .chat-grid, .subgrid { grid-template-columns: minmax(0, 1fr); }
       .insight-stack {
@@ -4557,23 +4557,30 @@ APP_HTML = """<!doctype html>
         height: 100%;
         min-height: 0;
         grid-template-rows: minmax(0, 1fr) auto auto;
-        gap: 10px;
+        gap: 8px;
       }
       .conversation-panel > .conversation-head { display: none; }
-      .panel.pad { padding: 14px; }
+      .panel.pad { padding: 10px; }
+      .conversation-panel.panel.pad { padding: 10px 10px 8px; }
       .flow { grid-template-columns: minmax(0, 1fr); }
       .node:after { display: none; }
       .composer {
-        gap: 8px;
-        padding: 10px;
+        gap: 6px;
+        padding: 8px 10px;
         border-radius: 14px;
-        max-height: 46dvh;
+        max-height: 38dvh;
       }
       .composer textarea {
-        min-height: 56px;
-        max-height: 22dvh;
+        min-height: 48px;
+        max-height: 18dvh;
         font-size: 16px;
+        padding: 9px 11px;
       }
+      .composer > label:has(textarea) > span,
+      .composer > label:has(textarea) { gap: 2px; }
+      .composer-options > summary { min-height: 28px; padding: 5px 9px; font-size: 12px; }
+      .actions { gap: 6px; }
+      .actions .primary { min-height: 38px; padding: 8px 14px; font-size: 13.5px; }
       .composer-options > summary { display: flex; }
       .composer-options:not([open]) .control-grid,
       .composer-options:not([open]) .switch-row { display: none; }
@@ -4744,12 +4751,15 @@ APP_HTML = """<!doctype html>
     }
     @media (max-width: 480px) {
       aside { width: min(92vw, 340px); }
-      main { padding: 10px; }
-      .panel.pad { padding: 14px; }
-      .message-list { padding: 4px 0 6px; }
+      main { padding: 8px; }
+      .panel.pad { padding: 10px; }
+      .conversation-panel.panel.pad { padding: 8px; }
+      .conversation-panel { gap: 6px; }
+      .message-list { padding: 4px 0 6px; gap: 10px; }
       .message {
         max-width: 100%;
         font-size: 13.5px;
+        padding: 11px 12px;
       }
       .edit-actions {
         display: grid;
@@ -4757,15 +4767,20 @@ APP_HTML = """<!doctype html>
       }
       .edit-actions .message-action {
         justify-content: center;
-        min-height: 44px;
+        min-height: 40px;
       }
+      .inline-suggestions { padding: 5px 7px; max-height: 42px; gap: 8px; }
+      .inline-suggestion-list .suggestion-button { max-width: 180px; font-size: 11px; padding: 4px 8px; }
       .composer {
-        padding: 8px;
-        gap: 7px;
+        padding: 7px 9px;
+        gap: 5px;
+        max-height: 36dvh;
       }
-      .composer textarea { min-height: 52px; }
+      .composer textarea { min-height: 44px; max-height: 16dvh; padding: 8px 10px; font-size: 15.5px; }
+      .composer-options > summary { min-height: 26px; padding: 4px 8px; font-size: 11.5px; }
       .composer-status { display: none; }
-      .actions { grid-template-columns: 1fr; }
+      .actions { grid-template-columns: 1fr; gap: 5px; }
+      .actions .primary { min-height: 36px; padding: 7px 12px; font-size: 13px; }
       .actions .secondary { display: none; }
       .metric-grid { grid-template-columns: minmax(0, 1fr); }
       .badge-row { gap: 6px; }
