@@ -3816,7 +3816,8 @@ APP_HTML = """<!doctype html>
     button.secondary { color: var(--ink); background: #0a1b31; border-color: var(--line); }
     button.secondary:hover:not(:disabled) { background: #0d2547; border-color: var(--cyan); }
     button.secondary:active:not(:disabled) { background: #0a1f3a; }
-    button:disabled { opacity: 0.62; cursor: wait; }
+    button:disabled { opacity: 0.62; cursor: not-allowed; }
+    button.primary.loading, button.primary[data-loading="true"] { cursor: progress; }
     .answer-card { display: grid; gap: 16px; }
     .answer {
       min-height: 170px;
@@ -4651,7 +4652,7 @@ APP_HTML = """<!doctype html>
         btn.classList.toggle("active", active);
         btn.setAttribute("aria-selected", String(active));
       });
-      $("#authSubmit").textContent = nextMode === "signup" ? "Sign Up" : "Login";
+      $("#authSubmit").textContent = nextMode === "signup" ? "Create Account" : "Login";
       $("#authPassword").setAttribute("autocomplete", nextMode === "signup" ? "new-password" : "current-password");
       if (nextMode !== "signup") $("#authPasswordConfirm").value = "";
       setAuthMessage(state.authNotice, state.authNotice ? "warn" : "");
@@ -4714,20 +4715,22 @@ APP_HTML = """<!doctype html>
 
     function validateAuthForm({ showMessage = false } = {}) {
       const message = getAuthValidationError();
-      $("#authSubmit").disabled = state.authLoading || Boolean(message);
-      if (showMessage && message) {
-        setAuthMessage(message);
+      $("#authSubmit").disabled = state.authLoading;
+      const hasInput = Boolean($("#authEmail").value || $("#authPassword").value || $("#authPasswordConfirm").value);
+      if ((showMessage || hasInput) && message) {
+        setAuthMessage(message, "warn");
       } else if (!state.authLoading && state.authNotice && !message) {
         setAuthMessage(state.authNotice, "warn");
-      } else if (!state.authLoading && !message && $("#authError").classList.contains("warn")) {
-        setAuthMessage("");
+      } else if (!state.authLoading && !message) {
+        const errEl = $("#authError");
+        if (errEl && errEl.classList.contains("warn")) setAuthMessage("");
       }
       return !message;
     }
 
     function resetAuthLoading() {
       state.authLoading = false;
-      $("#authSubmit").textContent = state.authMode === "signup" ? "Sign Up" : "Login";
+      $("#authSubmit").textContent = state.authMode === "signup" ? "Create Account" : "Login";
       validateAuthForm();
     }
 

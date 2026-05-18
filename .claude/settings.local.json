@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\rahul\\\\Downloads\\\\Agentic RAG\" -Force)",
+      "Bash(Select-Object -Property Name, Mode)",
+      "Bash(Format-Table -AutoSize)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)",
+      "WebFetch(domain:agentic-rag2.vercel.app)",
+      "Bash(Start-Sleep -Seconds 90)",
+      "Bash(Write-Output \"Done waiting\")"
+    ]
+  }
+}
